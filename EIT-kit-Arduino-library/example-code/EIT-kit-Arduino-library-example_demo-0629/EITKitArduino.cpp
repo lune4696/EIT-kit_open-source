@@ -16,25 +16,9 @@
 #include <iomanip>
 #include <iostream>     // std::cout
 #include <sstream>      // std::stringstream
+#include <vector>
 
-#if defined(ARDUINO_ARCH_ESP32)
-#include "soc/gpio_struct.h"
-#include "BLEDevice.h"
-#include "BLEUtils.h"
-#include "BLEServer.h"
-//  SPIClass * vspi = new SPIClass(VSPI);
-//     SPIClass * hspi = new SPIClass(HSPI);
-SPIClass * vspi = new SPIClass(VSPI);
-SPIClass * hspi = new SPIClass(HSPI);
-MCP23S17 IOExpander(vspi, CHIP_SEL_MCP23S17, 0);
-BLECharacteristic *pCharacteristic;
-BLEServer *pServer = NULL;
-bool deviceConnected = false;
-bool oldDeviceConnected = false;
-int op = 0;
-char cstr[300];
-// Set the MCP23s17: IOExpander
-#elif defined(__IMXRT1062__) // for Teensy 4.0
+#if defined(__IMXRT1062__) // for Teensy 4.0
 
 // State of MCP4252 TCON register
 uint8_t tcon_reg = 0xFF;
@@ -117,10 +101,10 @@ uint32_t gpio_buf[MAX_SAMPLES*ADC_AVG];     // Store raw GPIO readings
 // auto_calibration is default on
 // visualize 3d is default off
 EITKitArduino::EITKitArduino(){
-  EITKitArduino(32,1,2, AD, AD, false);
+  EITKitArduino(32,1,2, AD, AD);
 }
 
-EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminals, Meas_t drive_type, Meas_t meas_type, bool bluetooth_communication)
+EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminals, Meas_t drive_type, Meas_t meas_type)
 {
   if(serial_communication){
       Serial.begin(115200);
@@ -135,7 +119,6 @@ EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminal
   _num_terminals = num_terminals; // 2-terminal or 4-terminal measurement protocol
   _drive_type = drive_type; // protocol for electrodes used in excitation current
   _meas_type = meas_type; // protocol for electrodes used in voltage reading 
-  _bluetooth_communication = bluetooth_communication;
 
   // Initialize CS on high and toggle low when communicating
   pinMode(CHIP_SEL_DRIVE, OUTPUT);
@@ -145,72 +128,7 @@ EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminal
   digitalWrite(CHIP_SEL_MEAS, HIGH);
   digitalWrite(CHIP_SEL_AD5930, HIGH);
 
-  #if defined(ARDUINO_ARCH_ESP32)
-  // Initialize HSPI
-  hspi->setFrequency(SPI_FREQ_SLOW);
-  hspi->begin();
-  hspi->setHwCs(false);
-
-  // Initialize VSPI along with IO expander
-  vspi->setFrequency(SPI_FREQ_FAST);
-  IOExpander.begin();
-  vspi->setHwCs(false);
-
-  // Set CS back to high in case HSPI initialization overwrote it
-  pinMode(CHIP_SEL_MCP23S17, OUTPUT);
-  digitalWrite(CHIP_SEL_MCP23S17, HIGH);
-
-  // For the MUX connected via MC23S17 on port A
-  IOExpander.pinMode(CHIP_SEL_MUX_SRC, OUTPUT);
-  IOExpander.pinMode(CHIP_SEL_MUX_SINK, OUTPUT);
-  IOExpander.pinMode(CHIP_SEL_MUX_VP, OUTPUT);
-  IOExpander.pinMode(CHIP_SEL_MUX_VN, OUTPUT);
-  IOExpander.digitalWrite(CHIP_SEL_MUX_SRC, HIGH);
-  IOExpander.digitalWrite(CHIP_SEL_MUX_SINK, HIGH);
-  IOExpander.digitalWrite(CHIP_SEL_MUX_VP, HIGH);
-  IOExpander.digitalWrite(CHIP_SEL_MUX_VN, HIGH);
-  
-  // For the AD5930 signal generator, connected via MCP23S17 on port B
-  IOExpander.pinMode(AD5930_INT_PIN, OUTPUT);
-  IOExpander.pinMode(AD5930_CTRL_PIN, OUTPUT);
-  IOExpander.pinMode(AD5930_STANDBY_PIN, OUTPUT);
-  pinMode(AD5930_MSBOUT_PIN, INPUT);
-  IOExpander.digitalWrite(AD5930_INT_PIN, LOW); 
-  IOExpander.digitalWrite(AD5930_CTRL_PIN, LOW);
-  IOExpander.digitalWrite(AD5930_STANDBY_PIN, LOW);
-
-  // ADC input
-  pinMode(ADC_BIT0, INPUT);
-  pinMode(ADC_BIT1, INPUT);
-  pinMode(ADC_BIT2, INPUT);
-  pinMode(ADC_BIT3, INPUT);
-  pinMode(ADC_BIT4, INPUT);
-  pinMode(ADC_BIT5, INPUT);
-  pinMode(ADC_BIT6, INPUT);
-  pinMode(ADC_BIT7, INPUT);
-  pinMode(ADC_BIT8, INPUT);
-  pinMode(ADC_BIT9, INPUT);
-
-  AD5930_Write(CTRL_REG, 0b011111110011);
-  AD5930_Set_Start_Freq(TEST_FREQ);
-
-  AD5270_LockUnlock(CHIP_SEL_DRIVE, 0);
-  AD5270_LockUnlock(CHIP_SEL_MEAS, 0);
-
-  /* Start the frequency sweep */
-  IOExpander.digitalWrite(AD5930_CTRL_PIN, HIGH);
-  delay(100);
-
-  Serial.println("Board Initialized");
-
-  // Start Bluetooth Initialization
-  if(_bluetooth_communication){
-      Serial.println("Starting BLE work!");
-      BLEStart();            
-      Serial.println("Characteristic defined! Now you can read it in your phone!");
-  }
-
-  #elif defined(__IMXRT1062__) // for Teensy 4.0
+  #if defined(__IMXRT1062__) // for Teensy 4.0
   // Teensy 4.0
   pinMode(MOSI_PIN, OUTPUT);
   pinMode(SCK_PIN, OUTPUT);
@@ -259,16 +177,11 @@ EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminal
   digitalWrite(AD5930_CTRL_PIN, HIGH);
   delay(100);
 
-  // mux_write(CHIP_SEL_MUX_SRC, elec_to_mux[0], MUX_EN);
-  // mux_write(CHIP_SEL_MUX_SINK, elec_to_mux[1], MUX_EN);
-  // mux_write(CHIP_SEL_MUX_VP, elec_to_mux[0], MUX_EN);
-  // mux_write(CHIP_SEL_MUX_VN, elec_to_mux[1], MUX_EN);
   mux_write_to_electrode(SRC, 0, MUX_EN);
   mux_write_to_electrode(SINK, 1, MUX_EN);
   mux_write_to_electrode(VP, 0, MUX_EN);
   mux_write_to_electrode(VN, 1, MUX_EN);
   #endif 
-
 
   calibrateEIT();
 
@@ -278,9 +191,7 @@ EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminal
   for (i = 0; i < 30; i++)
   {
     // read_frame(AD, AD, _signal_rms, _signal_phase, NUM_ELECTRODES);
-    #if defined(ARDUINO_ARCH_ESP32)
-    read_frame(_drive_type, _meas_type, _signal_rms, _num_electrodes);
-    #elif defined(__IMXRT1062__) // for Teensy 4.0
+    #if defined(__IMXRT1062__) // for Teensy 4.0
     read_frame(AD, AD, _signal_rms, signal_mag, _signal_phase, _num_electrodes);
     #endif 
 
@@ -295,6 +206,7 @@ EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminal
   Serial.println("origin frame");
   std::string cur_measurements = "origin";
   std::ostringstream streamObj;
+  // 小数点以下の桁数を指定
   streamObj << std::fixed;
   // Set precision to 4 digits
   streamObj << std::setprecision(4);
@@ -310,64 +222,6 @@ EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminal
   measurements_to_send = cur_measurements;
   // Serial.println(cur_measurements.length());
   // Serial.println(cur_measurements.c_str());
-  if(_bluetooth_communication){
-    ensureBluetoothConnection();
-  }
-}
-
-// Start Bluetooth Connection
-void EITKitArduino::BLEStart() {
-  #if defined(ARDUINO_ARCH_ESP32)
-  Serial.println("starting blestart!");
-  BLEDevice::init("EIT-kit's ESP32");
-  Serial.println("starting creation server!");
-
-  pServer = BLEDevice::createServer();
-  Serial.println("created server!");
-
-  pServer->setCallbacks(new MyServerCallbacks(&deviceConnected));
-  Serial.println("created myservercallbacks!");
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-  pCharacteristic = pService->createCharacteristic(
-                      CHARACTERISTIC_UUID,
-                      BLECharacteristic::PROPERTY_READ |
-                      BLECharacteristic::PROPERTY_WRITE |
-                      BLECharacteristic::PROPERTY_NOTIFY
-                    );
-
-  Serial.println("starting messagecallbacks!");
-  pCharacteristic->setCallbacks(new MessageCallbacks(&measurements_to_send)); 
-  pService->start();
-  Serial.println("created messagecallbacks!");
-  // BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(true);
-  pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
-  pAdvertising->setMinPreferred(0x12);
-  BLEDevice::startAdvertising();
-  #endif
-}
-
-void EITKitArduino::ensureBluetoothConnection(){
-  #if defined(ARDUINO_ARCH_ESP32)
-  if (deviceConnected) {
-    //What is being sent to iPhone
-    pCharacteristic->notify();
-  }
-  // disconnecting
-  if (!deviceConnected && oldDeviceConnected) {
-    delay(500); // give the bluetooth stack the chance to get things ready
-    pServer->startAdvertising(); // restart advertising
-    Serial.println("start advertising");
-    oldDeviceConnected = deviceConnected;
-  }
-  // connecting
-  if (deviceConnected && !oldDeviceConnected) {
-    // do stuff here on connecting
-    oldDeviceConnected = deviceConnected;
-  }
-  #endif
 }
 
 void EITKitArduino::calibrateEIT(){
@@ -409,9 +263,7 @@ void EITKitArduino::take_measurements(Meas_t drive_type, Meas_t meas_type){
 
   // phase removed
   // read_frame(drive_type, meas_type, _signal_rms, _signal_phase, _num_electrodes);
-  #if defined(ARDUINO_ARCH_ESP32)
-  read_frame(_drive_type, _meas_type, _signal_rms, _num_electrodes);
-  #elif defined(__IMXRT1062__) // for Teensy 4.0
+  #if defined(__IMXRT1062__) // for Teensy 4.0
   read_frame(_drive_type, _meas_type, _signal_rms, signal_mag, _signal_phase, _num_electrodes);
   #endif 
   // read_frame_for_band(0,drive_type, meas_type, _signal_rms, _num_electrodes);
@@ -440,9 +292,6 @@ void EITKitArduino::take_measurements(Meas_t drive_type, Meas_t meas_type){
     // Serial.println(cur_measurements.length());
     // Serial.println(cur_measurements.c_str());
     frame_delay = millis();
-  }
-  if(_bluetooth_communication){
-    ensureBluetoothConnection();
   }
 }
 
@@ -558,48 +407,7 @@ double* EITKitArduino::get_phase_array(){
   return _signal_phase;
 }
 
-#if defined(ARDUINO_ARCH_ESP32)
-// VSPI addresses devices through GPIO
-void EITKitArduino::vspi_write_byte(const int chip_select, uint8_t data_to_send, const uint8_t bit_order, const uint8_t mode) {
-  vspi->beginTransaction(SPISettings(SPI_FREQ_FAST, bit_order, mode));
-  digitalWrite(chip_select, LOW);   //pull SS slow to prep other end for transfer
-  vspi->transfer(data_to_send);
-  digitalWrite(chip_select, HIGH);  //pull ss high to signify end of data transfer
-  vspi->endTransaction();
-}
-
-void EITKitArduino::vspi_write_word(const int chip_select, uint16_t data_to_send, const uint8_t bit_order, const uint8_t mode) {
-  vspi->beginTransaction(SPISettings(SPI_FREQ_FAST, bit_order, mode));
-  digitalWrite(chip_select, LOW);   //pull SS slow to prep other end for transfer
-  vspi->transfer16(data_to_send);
-  digitalWrite(chip_select, HIGH);  //pull ss high to signify end of data transfer
-  vspi->endTransaction();
-}
-
-// HSPI addresses devices through IO expander
-void EITKitArduino::hspi_write_byte(const int chip_select, uint8_t data_to_send, const uint8_t bit_order, const uint8_t mode){
-  hspi->beginTransaction(SPISettings(SPI_FREQ_SLOW, bit_order, mode));
-  IOExpander.digitalWrite(chip_select, LOW);
-  hspi->transfer(data_to_send);
-  IOExpander.digitalWrite(chip_select, HIGH);
-  hspi->endTransaction();
-}
-
-void EITKitArduino::hspi_write_word(const int chip_select, uint16_t data_to_send, const uint8_t bit_order, const uint8_t mode){
-  hspi->beginTransaction(SPISettings(SPI_FREQ_SLOW, bit_order, mode));
-  IOExpander.digitalWrite(chip_select, LOW);
-  hspi->transfer16(data_to_send);
-  IOExpander.digitalWrite(chip_select, HIGH);
-  hspi->endTransaction();
-}
-
-/* Write a 4-bit command and a 10-bit data word */
-void EITKitArduino::AD5270_Write(const int chip_select, uint8_t cmd, uint16_t data){
-  uint16_t data_word = ((cmd & 0x0F) << 10) | (data & 0x03FF);
-  vspi_write_word(chip_select, data_word, MSBFIRST, SPI_MODE1);
-}
-
-#elif defined(__IMXRT1062__) // for Teensy 4.0
+#if defined(__IMXRT1062__) // for Teensy 4.0
 
 /* Write a 4-bit command and a 10-bit data word */
 void EITKitArduino::AD5270_Write(const int chip_sel, uint8_t cmd, uint16_t data)
@@ -676,38 +484,7 @@ uint16_t EITKitArduino::analog_read()
                    ((gpio_reg & 0x0004) << 7);  // Pin 14 (GPIO 18)
     return val;
 }
-// /* Return the time it takes to make num_samples measurements */
-// uint32_t EITKitArduino::time_measurement(uint16_t num_samples)
-// {   
-//     uint16_t gpio_buf[num_samples][ADC_AVG];    // Store raw ADC samples of the input waveform
-//     uint8_t ref_buf[num_samples];               // Store high-low values of the square output waveform
-    
-//     uint32_t time1, time2;
-//     uint32_t count, num_cycles;
-//     uint16_t i, j;
-    
-//     /* Collect samples */
-//     time1 = micros();
-//     for(i = 0; i < num_samples; i++)
-//     { 
-//         num_cycles = 20;
-//         count = 0;
-
-//         // Read GPIO pins
-//         for (j = 0; j < ADC_AVG; j++)
-//         {
-//             while (ARM_DWT_CYCCNT - count < num_cycles);   // Wait set number of cycles since last count
-//             count = ARM_DWT_CYCCNT;
-
-//             gpio_buf[i][j] = gpio_read();
-//         }
-//         ref_buf[i] = digitalRead(AD5930_MSBOUT_PIN);
-//     }
-//     time2 = micros();
-
-//     return (time2 - time1);
-// }
-#endif 
+#endif
 
 /* Enable/disable rheostat value changes */
 void EITKitArduino::AD5270_LockUnlock(const int chip_select, uint8_t lock){
@@ -729,9 +506,7 @@ void EITKitArduino::AD5270_Set(const int chip_select, uint16_t val)
 void EITKitArduino::AD5930_Write(uint8_t reg, uint16_t data){
   uint16_t data_word = ((reg & 0x0F) << 12) | (data & 0x0FFF);
 
-  #if defined(ARDUINO_ARCH_ESP32)
-  vspi_write_word(CHIP_SEL_AD5930, data_word, MSBFIRST, SPI_MODE1);
-  #elif defined(__IMXRT1062__) // for Teensy 4.0
+  #if defined(__IMXRT1062__) // for Teensy 4.0
   digitalWrite(CHIP_SEL_AD5930, LOW);
   spi_write(MOSI_PIN, SCK_PIN, SPI_FREQ_FAST, MSBFIRST, SPI_MODE1, 16, data_word);
   digitalWrite(CHIP_SEL_AD5930, HIGH);
@@ -749,16 +524,7 @@ void EITKitArduino::AD5930_Set_Start_Freq(uint32_t freq){
 }
 
 void EITKitArduino::mux_write(const int chip_select, uint8_t pin_sel, uint8_t enable){
-  #if defined(ARDUINO_ARCH_ESP32)
-  uint8_t value;
-  if (enable) {
-      value = pin_sel & 0x1F;
-   } else {
-      value = 0xC0 | (pin_sel & 0x1F);
-   }
-   hspi_write_byte(chip_select, value, MSBFIRST, SPI_MODE1);
-  
-  #elif defined(__IMXRT1062__) // for Teensy 4.0
+  #if defined(__IMXRT1062__) // for Teensy 4.0
   digitalWrite(chip_select, LOW);
   if (enable)
       spi_write(MOSI_PIN, SCK_PIN, SPI_FREQ_FAST, MSBFIRST, SPI_MODE1, 8, pin_sel & 0x1F);
@@ -782,52 +548,19 @@ void EITKitArduino::mux_write_to_electrode(Mux_t chip_select, uint8_t electrode_
         cs_pin = CHIP_SEL_MUX_VN; break;
     }
     mux_write(cs_pin, elec_to_mux[electrode_sel], enable);
-  }else{
-    #if defined(ARDUINO_ARCH_ESP32) // for Arduino ESP32
-
-    int cs_pin = 0;
-    switch(chip_select){
-      case SRC: 
-        cs_pin = CHIP_SEL_MUX_SRC_2; break;
-      case SINK: 
-        cs_pin = CHIP_SEL_MUX_SINK_2; break;
-      case VP: 
-        cs_pin = CHIP_SEL_MUX_VP_2; break;
-      case VN: 
-        cs_pin = CHIP_SEL_MUX_VN_2; break;
-    }
-    mux_write(cs_pin, elec_to_mux[electrode_sel], enable);
-    #endif
   }
 }
 
 /* Read GPIO 0-31 (takes ~50.1ns) */
 uint32_t EITKitArduino::gpio_read(){
-  #if defined(ARDUINO_ARCH_ESP32)
-  return REG_READ(GPIO_IN_REG);
-  #elif defined(__IMXRT1062__) // for Teensy 4.0
+  #if defined(__IMXRT1062__) // for Teensy 4.0
   return (*(&GPIO6_DR + 2) >> 16);
   #endif
 }
 
 /* Convert GPIO reading to 10-bit unsigned integer */
 uint16_t EITKitArduino::gpio_convert(uint32_t gpio_reg){
-  #if defined(ARDUINO_ARCH_ESP32)
-  const uint8_t bit_to_gpio[10] = { ADC_BIT0, ADC_BIT1, ADC_BIT2, ADC_BIT3, ADC_BIT4, ADC_BIT5, ADC_BIT6, ADC_BIT7, ADC_BIT8, ADC_BIT9 };
-  uint16_t val = 0;
-  
-  for (int i = 0; i < 10; i++) {
-    uint32_t gpio_val = gpio_reg & (1 << bit_to_gpio[i]);
-    if (gpio_val) {
-      uint32_t bit_val;
-      if (bit_to_gpio[i] > i)
-        bit_val = gpio_val >> (bit_to_gpio[i] - i);
-      else
-        bit_val = gpio_val << (i - bit_to_gpio[i]);
-      val |= bit_val;
-    }
-  }
-  #elif defined(__IMXRT1062__) // for Teensy 4.0
+  #if defined(__IMXRT1062__) // for Teensy 4.0
   uint16_t val = ((gpio_reg & 0x0200) >> 9) | // Pin 23 (GPIO 25)
                    ((gpio_reg & 0x0100) >> 7) | // Pin 22 (GPIO 24)
                    ((gpio_reg & 0x0800) >> 9) | // Pin 21 (GPIO 27)
@@ -846,9 +579,7 @@ void EITKitArduino::calibrate_samples(){
 
   /* Take many samples to determine sample rate */
   num_samples = MAX_SAMPLES;
-  #if defined(ARDUINO_ARCH_ESP32)
-  uint32_t sample_time = read_signal(NULL, NULL, 0);
-  #elif defined(__IMXRT1062__) // for Teensy 4.0
+  #if defined(__IMXRT1062__) // for Teensy 4.0
   uint32_t sample_time = read_signal(NULL, NULL, NULL, NULL, 0);
   #endif
   /* Calculate sample rate and total number of samples */
@@ -882,29 +613,51 @@ uint16_t EITKitArduino::sine_compare(uint16_t * signal, uint16_t pk_pk, uint16_t
   error_sum = error_sum / num_points;
   return error_sum;
 }
-#if defined(ARDUINO_ARCH_ESP32)
-void EITKitArduino::read_frame(Meas_t drive_type, Meas_t meas_type, double * rms_array, uint8_t electrodes_per_band){
-  for(int band = 0; band<_num_bands; band++){
-    read_frame_for_band(band, drive_type, meas_type, rms_array, electrodes_per_band);
+
+#if defined(__IMXRT1062__) // for Teensy 4.0
+
+// 所与の電流パターンにおける電圧分布を読み取り更新
+void EITKitArduino::read_volts_at(uint8_t src_pin, uint8_t sink_pin, int delay_us, uint16_t num_meas, std::vector<uint8_t> vs, double * rms_array, double * mag_array, double * phase_array) {
+  uint8_t vp_pin, vn_pin;
+  int num_pair = vs.size() / 2;
+  for(int i = 0; i < num_pair; i++) {
+    vp_pin = vs[2*i];
+    vn_pin = vs[2*i + 1];
+    if ((vp_pin == src_pin) || (vp_pin == vn_pin) || (src_pin == sink_pin)) {
+      mag_array[num_meas] = 0;
+      phase_array[num_meas] = 0;
+    }
+    else {
+      // mux_write(CHIP_SEL_MUX_VP, elec_to_mux[vp_pin], MUX_EN);
+      // mux_write(CHIP_SEL_MUX_VN, elec_to_mux[vn_pin], MUX_EN);
+      mux_write_to_electrode(VP, vp_pin, MUX_EN);
+      mux_write_to_electrode(VN, vn_pin, MUX_EN);
+
+      read_signal(rms_array + num_meas, mag_array + num_meas, phase_array + num_meas, NULL, 0);
+    }
+    delayMicroseconds(delay_us);
   }
 }
-void EITKitArduino::read_frame_for_band(uint8_t band, Meas_t drive_type, Meas_t meas_type, double * rms_array, uint8_t electrodes_per_band){
+
+// 各フレームでの電圧分布群を読み取り更新
+// read_volts_at() を使用する修正版
+void EITKitArduino::read_frame(Meas_t drive_type, Meas_t meas_type, double * rms_array, double * mag_array, double * phase_array, uint8_t num_elec)
+{
   int8_t tx_pair, rx_pair;
-  uint8_t src_pin, sink_pin, vp_pin, vn_pin;
+  uint8_t src_pin, sink_pin;
   uint16_t num_meas = 0;
 
-  for (tx_pair = band*electrodes_per_band; tx_pair < electrodes_per_band*band+electrodes_per_band; tx_pair++)
-  {
-    // Serial.println("reading");
-    switch (drive_type)
-    {
+  std::vector<uint8_t> vs(2*num_elec);
+
+  for(tx_pair = 0; tx_pair < num_elec; tx_pair++) {
+    switch (drive_type) {
       case AD:
         src_pin = tx_pair;
-        sink_pin = (tx_pair + 1) % electrodes_per_band;
+        sink_pin = (tx_pair + 1) % num_elec;
         break;
       case OP:
         src_pin = tx_pair;
-        sink_pin = (tx_pair + electrodes_per_band / 2) % electrodes_per_band;
+        sink_pin = (tx_pair + num_elec/2) % num_elec;
         break;
       case MONO:
         src_pin = tx_pair;
@@ -914,329 +667,29 @@ void EITKitArduino::read_frame_for_band(uint8_t band, Meas_t drive_type, Meas_t 
     }
     mux_write_to_electrode(SRC, src_pin, MUX_EN);
     mux_write_to_electrode(SINK, sink_pin, MUX_EN);
-    
+
     delayMicroseconds(200);
 
-    for (rx_pair = band*electrodes_per_band; rx_pair < electrodes_per_band*band+electrodes_per_band; rx_pair++, num_meas++)
-    {
-      // For two terminal measurements, the excitation current and measurement comes from the same electrode pairs
-      if(_num_terminals == 2){
-        vp_pin = src_pin;
-        vn_pin = sink_pin;
-      }else{
-        switch (meas_type)
-        {
-          case AD:
-            vp_pin = rx_pair;
-            vn_pin = (rx_pair + 1) % electrodes_per_band;
-            break;
-          case OP:
-            vp_pin = rx_pair;
-            vn_pin = (rx_pair + electrodes_per_band / 2) % electrodes_per_band;
-            break;
-          case MONO:
-            vp_pin = rx_pair;
-            vn_pin = sink_pin;
-            break;
-        }
-      }
-      if (meas_type == MONO)
-      {
-        if ((vp_pin == src_pin) || (vp_pin == vn_pin) || (src_pin == sink_pin))
-        {
-          rms_array[num_meas] = 0;
-        }
-        else
-        {
-          mux_write_to_electrode(VP, vp_pin, MUX_EN);
-          mux_write_to_electrode(VN, vn_pin, MUX_EN);
-
-          delayMicroseconds(100);
-
-          read_signal(rms_array + num_meas, NULL, 0);
-        }
-      }
-      else
-      {
-        if ((vp_pin == src_pin) || (vp_pin == sink_pin) || (vn_pin == src_pin) || (vn_pin == sink_pin))
-        {
-          rms_array[num_meas] = 0;
-        }
-        else
-        { 
-          mux_write_to_electrode(VP, vp_pin, MUX_EN);
-          mux_write_to_electrode(VN, vn_pin, MUX_EN);
-
-          delayMicroseconds(100);
-
-          read_signal(rms_array + num_meas, NULL, 0);
-        }
+    for(rx_pair = 0; rx_pair < num_elec; rx_pair++, num_meas++) {
+      switch (meas_type) {
+        case AD:
+          vs[2*num_meas] = rx_pair;
+          vs[2*num_meas + 1] = (rx_pair + 1) % num_elec;
+          break;
+        case OP:
+          vs[2*num_meas] = rx_pair;
+          vs[2*num_meas + 1] = (rx_pair + num_elec/2) % num_elec;
+          break;
+        case MONO:
+          vs[2*num_meas] = rx_pair;
+          vs[2*num_meas + 1] = sink_pin;
+          break;
       }
     }
+    read_volts_at(src_pin, sink_pin, 100, num_meas, vs, rms_array, mag_array, phase_array);
   }
 }
-uint32_t EITKitArduino::read_signal(double * rms, uint16_t * error_rate, uint8_t debug){
-  uint16_t i, j;
-  uint8_t adc_half_period_count = 0;
-  uint16_t zero_cross_index = 0;
 
-  uint32_t time1, time2;
-  uint32_t count, num_cycles;
-  uint32_t sample_sum, total_sum = 0;
-  uint32_t phase_val;
-
-  time1 = micros();
-
-  /* Collect samples */
-  for (i = 0; i < num_samples*ADC_AVG; i++)
-  {
-    gpio_buf[i] = gpio_read();
-  }
-
-  time2 = micros();
-
-  /* Process samples */
-  for (i = 0; i < num_samples; i++)
-  {
-    /* Extract integer from GPIO reading */
-    for (j = 0, sample_sum = 0; j < ADC_AVG; j++)
-      sample_sum += gpio_convert(gpio_buf[i*ADC_AVG+j]);    // Get 10-bit ADC value from raw GPIO value
-    adc_buf[i] = sample_sum / ADC_AVG;
-
-    /* Store product for RMS calculation */
-    int16_t adc_val = (int16_t)adc_buf[i] - 512;
-    total_sum += adc_val * adc_val;
-
-    if (i > 0)
-    {
-      /* Signal at midpoint, entering peak or trough */
-      if ((adc_buf[i] > 512 && adc_buf[i - 1] <= 512) || (adc_buf[i] < 512 && adc_buf[i - 1] >= 512))
-      {
-        adc_half_period_count++;
-
-        /* Record index of first rising zero point */
-        if (adc_buf[i] > 512 && zero_cross_index == 0)
-          zero_cross_index = i;
-      }
-    }
-  }
-
-  /* Calculate peak-to-peak magnitude and RMS */
-  uint16_t rms_10bit = sqrt(total_sum / num_samples);
-  uint16_t pk_pk_10bit = rms_10bit * sqrt(2) * 2;
-  double rms_result = (double)rms_10bit * 2.2 / 1024;
-
-  if (rms)
-    *rms = rms_result;
-
-  if (error_rate)
-  {
-    // Compare measured signal to sine wave (only if a whole period of samples is available)
-    uint8_t compare_periods = 2;
-    if ((num_samples - zero_cross_index) >= (samples_per_period * compare_periods))
-      *error_rate = sine_compare(adc_buf + zero_cross_index, pk_pk_10bit, samples_per_period, compare_periods);
-  }
-
-  if (debug)
-  {  
-    for (int i = 0; i < num_samples; i++){
-      Serial.println(adc_buf[i]);
-    }
-  }
-  return (time2 - time1);
-}
-
-/* Find the gains that produce the highest sinusoidal current and voltage measurements */
-void EITKitArduino::calibrate_gain(Meas_t drive_type, Meas_t meas_type){
-  uint16_t i, j, k;
-  uint16_t gain;
-  uint32_t error_sum;
-  double rms_sum;
-  uint16_t min_current_gain = 0;    // 0 is highest gain, 1023 is lowest
-  uint16_t min_voltage_gain = 0;
-
-  // Calibrate current gain
-  for (i = 0; i < _num_electrodes; i++) {
-    Serial.print(".");
-    // Set current source electrodes to origin, set voltage measurement electrodes to overlap
-    mux_write_to_electrode(SRC, i, MUX_EN);
-    mux_write_to_electrode(VP, i, MUX_EN);
-    mux_write_to_electrode(SINK, (i+1)%MAX_ELECTRODES, MUX_EN);
-    mux_write_to_electrode(VN, (i+1)%MAX_ELECTRODES, MUX_EN);
-    // TODO Jackson?: Add check for drive and measurement type
-    delay(1);
-
-    // Set voltage measurement gain to 1 (maximum current (5V pk-pk) must be within ADC range)
-    AD5270_Shutdown(CHIP_SEL_MEAS, 1);
-  
-    // Calibrate current source
-    for (j = 0; j < 1024; j++) {
-      gain = j;
-      AD5270_Set(CHIP_SEL_DRIVE, gain);
-      delayMicroseconds(50);
-    
-      double rms;
-      uint16_t error;
-      rms_sum = 0;
-      error_sum = 0;
-      for (k = 0; k < 10; k++) {
-        read_signal(&rms, &error, 0);
-        rms_sum += rms;
-        error_sum += error;
-      }
-      rms_sum = rms_sum / 10;
-      error_sum = error_sum / 10;
-    
-      // Accept the highest gain (lowest value) such that the reading is a valid sinusoid
-      if (rms_sum > 0.2 && rms_sum < 1.5 && error_sum < 20)
-        break;
-    }
-    if (gain > min_current_gain){
-      min_current_gain = gain;
-    }
-  }
-  _current_gain = min_current_gain;
-  AD5270_Set(CHIP_SEL_DRIVE, _current_gain);
-  Serial.println();
-  Serial.println("done with current gain");
-  // Calibrate voltage gain
-  for (i = 0; i < _num_electrodes; i++) {
-    Serial.print(".");
-    // Set voltage measurement electrodes to the highest voltage differential point
-    mux_write_to_electrode(SRC, i, MUX_EN);
-    mux_write_to_electrode(SINK, (i+1)%MAX_ELECTRODES, MUX_EN);
-    mux_write_to_electrode(VP, (i+2)%MAX_ELECTRODES, MUX_EN);
-    mux_write_to_electrode(VN, (i+3)%MAX_ELECTRODES, MUX_EN);
-    // TODO Jackson?: Add check for drive and measurement type
-    
-    delay(1);
-    AD5270_Shutdown(CHIP_SEL_MEAS, 0);
-    
-    // Calibrate voltage measurement
-    for (j = 0; j < 1024; j++) {
-      gain = j;
-      AD5270_Set(CHIP_SEL_MEAS, gain);
-      delayMicroseconds(50);
-    
-      double rms;
-      uint16_t error;
-      rms_sum = 0;
-      error_sum = 0;
-      for (k = 0; k < 10; k++) {
-        read_signal(&rms, &error, 0);
-        rms_sum += rms;
-        error_sum += error;
-      }
-      rms_sum = rms_sum / 10;
-      error_sum = error_sum / 10;
-    
-      // Accept the highest gain (lowest value) such that reading is a valid sinusoid
-      if (rms_sum > 0.2 && rms_sum < 1.5 && error_sum < 30)
-        break;
-    }
-    if (gain > min_voltage_gain)
-      min_voltage_gain = gain;
-  }
-  _voltage_gain = min_voltage_gain;
-  AD5270_Set(CHIP_SEL_MEAS, _voltage_gain);
-  Serial.println();
-  
-  mux_write_to_electrode(SRC, 0, MUX_DIS);
-  mux_write_to_electrode(SINK, 0, MUX_DIS);
-  mux_write_to_electrode(VP, 0, MUX_DIS);
-  mux_write_to_electrode(VN, 0, MUX_DIS);
-  Serial.println("done calibrate gain");
-}
-#elif defined(__IMXRT1062__) // for Teensy 4.0
-void EITKitArduino::read_frame(Meas_t drive_type, Meas_t meas_type, double * rms_array, double * mag_array, double * phase_array, uint8_t num_elec)
-{
-  int8_t tx_pair, rx_pair;
-  uint8_t src_pin, sink_pin, vp_pin, vn_pin;
-  uint16_t num_meas = 0;
-
-  for(tx_pair = 0; tx_pair < num_elec; tx_pair++)
-  {
-      switch (drive_type)
-      {
-          case AD:
-              src_pin = tx_pair;
-              sink_pin = (tx_pair + 1) % num_elec;
-              break;
-          case OP:
-              src_pin = tx_pair;
-              sink_pin = (tx_pair + num_elec/2) % num_elec;
-              break;
-          case MONO:
-              src_pin = tx_pair;
-              //sink_pin = (tx_pair == 0 ? 31 : 0);
-              sink_pin = 0;
-              break;
-      }
-      mux_write_to_electrode(SRC, src_pin, MUX_EN);
-      mux_write_to_electrode(SINK, sink_pin, MUX_EN);
-
-      delayMicroseconds(200);
-
-      for(rx_pair = 0; rx_pair < num_elec; rx_pair++, num_meas++)
-      {
-          switch (meas_type)
-          {
-              case AD:
-                  vp_pin = rx_pair;
-                  vn_pin = (rx_pair + 1) % num_elec;
-                  break;
-              case OP:
-                  vp_pin = rx_pair;
-                  vn_pin = (rx_pair + num_elec/2) % num_elec;
-                  break;
-              case MONO:
-                  vp_pin = rx_pair;
-                  vn_pin = sink_pin;
-                  break;
-          }
-
-          if (meas_type == MONO)
-          {
-              if ((vp_pin == src_pin) || (vp_pin == vn_pin) || (src_pin == sink_pin))
-              {
-                  mag_array[num_meas] = 0;
-                  phase_array[num_meas] = 0;
-              }
-              else 
-              {
-                  // mux_write(CHIP_SEL_MUX_VP, elec_to_mux[vp_pin], MUX_EN);
-                  // mux_write(CHIP_SEL_MUX_VN, elec_to_mux[vn_pin], MUX_EN);
-                  mux_write_to_electrode(VP, vp_pin, MUX_EN);
-                  mux_write_to_electrode(VN, vn_pin, MUX_EN);
-
-                  delayMicroseconds(100);
-      
-                  read_signal(rms_array + num_meas, mag_array + num_meas, phase_array + num_meas, NULL, 0);
-              }
-          }
-          else
-          {
-              if ((vp_pin == src_pin) || (vp_pin == sink_pin) || (vn_pin == src_pin) || (vn_pin == sink_pin))
-              {
-                  mag_array[num_meas] = 0;
-                  phase_array[num_meas] = 0;
-              } 
-              else 
-              {
-                  // mux_write(CHIP_SEL_MUX_VP, elec_to_mux[vp_pin], MUX_EN);
-                  // mux_write(CHIP_SEL_MUX_VN, elec_to_mux[vn_pin], MUX_EN);
-                  mux_write_to_electrode(VP, vp_pin, MUX_EN);
-                  mux_write_to_electrode(VN, vn_pin, MUX_EN);
-                  
-                  delayMicroseconds(100);
-
-                  read_signal(rms_array + num_meas, mag_array + num_meas, phase_array + num_meas, NULL, 0);
-              }
-          }
-      }
-  }
-
-}
 /* Return the magnitude and phase offset of a sinusoidal input signal */
 uint32_t EITKitArduino::read_signal(double * rms, double * mag, double * phase, uint16_t * error_rate, uint8_t debug)
 { 
@@ -1501,60 +954,6 @@ void EITKitArduino::calibrate_gain(Meas_t drive_type, Meas_t meas_type)
 
 
 
-#if defined(ARDUINO_ARCH_ESP32)
-EITKitArduino::MyServerCallbacks::MyServerCallbacks(bool *_bptr) {
-    connection_ptr = _bptr;
-    BLEServerCallbacks();
-}
-
-void EITKitArduino::MyServerCallbacks::onConnect(BLEServer* pServer) {
-    assert(connection_ptr && "connection_ptr not sent in MyServerCallbacks::onConnect()");
-    *connection_ptr = true;
-}
-
-void EITKitArduino::MyServerCallbacks::onDisconnect(BLEServer* pServer) {
-    assert(connection_ptr && "connection_ptr not sent in MyServerCallbacks::onDisconnect()");
-    *connection_ptr = false;
-}
-
-EITKitArduino::MessageCallbacks::MessageCallbacks(std::string *str_ptr) {
-    _str_ptr = str_ptr;
-    BLECharacteristicCallbacks();
-}
-
-void EITKitArduino::MessageCallbacks::onWrite(BLECharacteristic *characteristic) {
-    // assert(_str_ptr && "connection_ptr not sent in MyServerCallbacks::onConnect()");
-    // Serial.println("onWrite start");
-    char reading[511];
-    memset(reading, 0, 511);
-    int j = 0;
-    if (op * 510 < _str_ptr->length()) {
-      for (int i = 510 * op; i < (510 * op) + 510; i++) {
-        if(i<_str_ptr->length()){
-          reading[j] = _str_ptr->at(i);
-          j++;
-        }else{
-          break;
-        }
-      }
-      pCharacteristic->setValue(reading);
-      pCharacteristic->notify();
-      // Serial.println(reading);
-      // op++;
-      if(_str_ptr->length()<511){
-        *_str_ptr = "";
-      }else{
-        *_str_ptr = _str_ptr->substr(510);
-      }
-    }
-    else {
-      op = 0;
-    }
-}
-
-void EITKitArduino::MessageCallbacks::onRead(BLECharacteristic *characteristic) {
-}
-#endif
 
 /* Find the magnitude and phase offset of the highest voltage differental point */
 void EITKitArduino::calibrate_signal(Meas_t drive_type, Meas_t meas_type){
