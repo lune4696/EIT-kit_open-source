@@ -101,7 +101,7 @@ uint32_t gpio_buf[MAX_SAMPLES*ADC_AVG];     // Store raw GPIO readings
 // auto_calibration is default on
 // visualize 3d is default off
 EITKitArduino::EITKitArduino(){
-  EITKitArduino(32,1,2, AD, AD);
+  EITKitArduino(16, 1, 4, AD, AD);
 }
 
 EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminals, Meas_t drive_type, Meas_t meas_type)
@@ -133,12 +133,10 @@ EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminal
   pinMode(MOSI_PIN, OUTPUT);
   pinMode(SCK_PIN, OUTPUT);
 
-  
   pinMode(CHIP_SEL_MUX_SRC, OUTPUT);
   pinMode(CHIP_SEL_MUX_SINK, OUTPUT);
   pinMode(CHIP_SEL_MUX_VP, OUTPUT);
   pinMode(CHIP_SEL_MUX_VN, OUTPUT);
-
 
   pinMode(AD5930_INT_PIN, OUTPUT);
   pinMode(AD5930_CTRL_PIN, OUTPUT);
@@ -157,7 +155,6 @@ EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminal
   pinMode(22, INPUT);
   pinMode(23, INPUT);
 
- 
   digitalWrite(CHIP_SEL_MUX_SRC, HIGH);
   digitalWrite(CHIP_SEL_MUX_SINK, HIGH);
   digitalWrite(CHIP_SEL_MUX_VP, HIGH);
@@ -188,18 +185,16 @@ EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminal
   uint16_t i;
 
   /* Read resting impedance state for calibration */
-  for (i = 0; i < 30; i++)
-  {
+  for (i = 0; i < 30; i++) {
     // read_frame(AD, AD, _signal_rms, _signal_phase, NUM_ELECTRODES);
     #if defined(__IMXRT1062__) // for Teensy 4.0
     read_frame(AD, AD, _signal_rms, signal_mag, _signal_phase, _num_electrodes);
     #endif 
 
     uint16_t j;
-    for (j = 0; j < _num_meas; j++)
-    {
-      if (_signal_rms[j] != 0)
-        _cur_frame[j] = 0.80 * _cur_frame[j] + 0.20 * (_signal_rms[j]);
+    for (j = 0; j < _num_meas; j++) {
+      // 何故か平均処理を行っている
+      if (_signal_rms[j] != 0) _cur_frame[j] = 0.80 * _cur_frame[j] + 0.20 * (_signal_rms[j]);
     }
   }
 
@@ -210,18 +205,15 @@ EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminal
   streamObj << std::fixed;
   // Set precision to 4 digits
   streamObj << std::setprecision(4);
-  for (i = 0; i < _num_meas; i++)
-  {
+  for (i = 0; i < _num_meas; i++) {
     // Serial.println(_cur_frame[i], 4);
     if (_cur_frame[i] != 0) {
-        streamObj << _cur_frame[i];
-        // streamObj << counter;
-      }
+      streamObj << _cur_frame[i];
+      // streamObj << counter;
+    }
   }
   cur_measurements.append(streamObj.str());
   measurements_to_send = cur_measurements;
-  // Serial.println(cur_measurements.length());
-  // Serial.println(cur_measurements.c_str());
 }
 
 void EITKitArduino::calibrateEIT(){
@@ -235,9 +227,6 @@ void EITKitArduino::calibrateEIT(){
   calibrate_signal(AD, AD);
   #endif
   Serial.println("Calibrated new");
-
-  // AD5270_Set(CHIP_SEL_DRIVE, 1023); // Junyi test setting
-  // AD5270_Set(CHIP_SEL_MEAS, 1023);
 
   // Junyi uncommented
   mux_write_to_electrode(SRC, 0, MUX_EN);
@@ -578,7 +567,7 @@ uint16_t EITKitArduino::gpio_convert(uint32_t gpio_reg){
 void EITKitArduino::calibrate_samples(){
 
   /* Take many samples to determine sample rate */
-  num_samples = MAX_SAMPLES;
+  num_samples = MAX_SAMPLES; // これいる？と思ったのだが、最悪なことにグローバル変数として read_signal の中で使っている　クソ
   #if defined(__IMXRT1062__) // for Teensy 4.0
   uint32_t sample_time = read_signal(NULL, NULL, NULL, NULL, 0);
   #endif
@@ -589,9 +578,7 @@ void EITKitArduino::calibrate_samples(){
 }
 
 uint16_t EITKitArduino::sine_compare(uint16_t * signal, uint16_t pk_pk, uint16_t points_per_period, uint8_t num_periods){
-
-  if (points_per_period == 0)
-    return 0;
+  if (points_per_period == 0) return 0;
 
   uint16_t num_points = points_per_period * num_periods;
 
@@ -633,6 +620,7 @@ void EITKitArduino::read_volts_at(uint8_t src_pin, uint8_t sink_pin, int delay_u
       mux_write_to_electrode(VP, vp_pin, MUX_EN);
       mux_write_to_electrode(VN, vn_pin, MUX_EN);
 
+      // 配列のポインタが引数になっていることに注意、ポインタ位置を起点(引数の値)からずらして渡している
       read_signal(rms_array + num_meas, mag_array + num_meas, phase_array + num_meas, NULL, 0);
     }
     delayMicroseconds(delay_us);
@@ -811,43 +799,31 @@ uint32_t EITKitArduino::read_signal(double * rms, double * mag, double * phase, 
     }
 
     /* Calculate average peaks and troughs */
-    for (i = 0, sample_sum =  0; i < adc_peak_count; i++)
-        sample_sum += adc_peaks[i];
+    for (i = 0, sample_sum =  0; i < adc_peak_count; i++) sample_sum += adc_peaks[i];
     adc_max = sample_sum / adc_peak_count;
-    for (i = 0, sample_sum = 0; i < adc_trough_count; i++)
-        sample_sum += adc_troughs[i];
+    for (i = 0, sample_sum = 0; i < adc_trough_count; i++) sample_sum += adc_troughs[i];
     adc_min = sample_sum / adc_trough_count;
-
-//    for (i = 0, sample_sum =  0; i < NUM_PERIODS; i++)
-//        sample_sum += adc_peaks[i];
-//    adc_max = sample_sum / NUM_PERIODS;
-//    for (i = 0, sample_sum = 0; i < NUM_PERIODS; i++)
-//        sample_sum += adc_troughs[i];
-//    adc_min = sample_sum / NUM_PERIODS;
 
     /* Calculate phase offset */
     int16_t phase_offset_cycles;
-    for (i = 0, sample_sum = 0; i < phase_readings; i++)
-        sample_sum += phase_cycles[i];
+    for (i = 0, sample_sum = 0; i < phase_readings; i++) sample_sum += phase_cycles[i];
     phase_offset_cycles = sample_sum / phase_readings;
 
     /* Calculate peak-to-peak magnitude and RMS */
     uint16_t mag_10bit = adc_max - adc_min;
-    uint16_t rms_10bit = sqrt(total_sum / num_samples);
+    uint16_t rms_10bit = sqrt(total_sum / num_samples); 
+    
+    // この 2.2 がマジックナンバーすぎる、回路絡みか？とも思ったが、sine_table の中身がサチっていることを考えると、
+    // sine_table は実際に測定したデータか何かで、そのときの pk-pk がフルスイング振幅の 2.2 倍だったんじゃないか？
+    // だからって何でサチってるデータを基準にしてるのかはわからないけど...
+    if (rms) *rms = (double)rms_10bit * 2.2 / 1024;
+    if (mag) *mag = (double)mag_10bit * 2.2 / 1024;                                                      
+    if (phase) *phase = (sample_rate * phase_offset_cycles / 1000000) * TEST_FREQ * 2*PI;   
 
-    if (rms)
-        *rms = (double)rms_10bit * 2.2 / 1024;
-    if (mag)
-        *mag = (double)mag_10bit * 2.2 / 1024;                                                      
-    if (phase)
-        *phase = (sample_rate * phase_offset_cycles / 1000000) * TEST_FREQ * 2*PI;   
-
-    if (error_rate)
-    {
-        // Compare measured signal to sine wave (only if >=2 period samples are available)
-        uint16_t compare_periods = 2;
-        if ((num_samples - phase_start_index) >= (samples_per_period * compare_periods))
-            *error_rate = sine_compare(adc_buf+phase_start_index, mag_10bit, samples_per_period, compare_periods);
+    if (error_rate) {
+      // Compare measured signal to sine wave (only if >=2 period samples are available)
+      uint16_t compare_periods = 2;
+      if ((num_samples - phase_start_index) >= (samples_per_period * compare_periods)) *error_rate = sine_compare(adc_buf+phase_start_index, mag_10bit, samples_per_period, compare_periods);
     }
 
     return (time2 - time1);
@@ -861,13 +837,9 @@ void EITKitArduino::calibrate_gain(Meas_t drive_type, Meas_t meas_type)
     if (drive_type == AD) {
         mux_write_to_electrode(SINK, 1, MUX_EN);
         mux_write_to_electrode(VN, 1, MUX_EN);
-        // mux_write(CHIP_SEL_MUX_SINK, elec_to_mux[1], MUX_EN);
-        // mux_write(CHIP_SEL_MUX_VN, elec_to_mux[1], MUX_EN);
     } else if (drive_type == OP) {
         mux_write_to_electrode(SINK, 16, MUX_EN);
         mux_write_to_electrode(VN, 16, MUX_EN);
-        // mux_write(CHIP_SEL_MUX_SINK, elec_to_mux[16], MUX_EN);
-        // mux_write(CHIP_SEL_MUX_VN, elec_to_mux[16], MUX_EN);
     }
 
     delay(5);
@@ -898,8 +870,7 @@ void EITKitArduino::calibrate_gain(Meas_t drive_type, Meas_t meas_type)
         error_sum = error_sum / 10;
 
         // Accept the highest gain such that reading a valid sinusoid
-        if (mag_sum > 0.5 && mag_sum < 2.1 && error_sum < 30)
-            break;
+        if (mag_sum > 0.5 && mag_sum < 2.1 && error_sum < 30) break;
     }
 
     // Set voltage measurement electrodes to the highest voltage differential point
