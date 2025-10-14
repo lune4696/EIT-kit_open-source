@@ -1,10 +1,10 @@
-#include <EITKitArduino.h>
+#include "EITKitArduino.h"
 
 EITKitArduino *eit = nullptr;
 
 void setup() {
   //eit.take_measurements(AD, AD, 16);
-  eit = new EITKitArduino(16,1,4, AD, AD, true);
+  eit = new EITKitArduino(4,1,4, AD, AD, true);
 }
 
 void loop() {
@@ -16,7 +16,12 @@ void loop() {
   } else {
     eit->take_measurements(AD, AD);
     // Example for checking attributes of EITKitArduino
-//    Serial.println(eit->get_num_bands()); 
+    double* rms_array = eit->get_magnitude_array();
+    for (int i = 0; i < NUM_MEAS; i++) {
+     Serial.print(i);
+     Serial.print(": ");
+     Serial.println(rms_array[i]);
+    }
   }
   delay(5);
 
