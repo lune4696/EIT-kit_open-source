@@ -6,30 +6,40 @@
 
 EITKitArduino *eit = nullptr;
 
-void setup() {
-  eit = new EITKitArduino(4,1,4, AD, AD);
-  eit->take_measurements(AD, AD);
-  // Example for checking attributes of EITKitArduino
-  double* rms_array = eit->get_magnitude_array();
+#define SET ":SET"
+#define GET ":GET"
+#define VOLTAGE ":VOLTAGE"
+#define CURRENT ":CURRENT"
+#define RMS ":RMS"
+#define PHASE ":PHASE"
+#define GAIN ":GAIN"
 
-  std::string result = "GET/RMS ";
+void setup() {
+  eit = new EITKitArduino(8,1,4, AD, AD);
+  eit->calibrate();
+  eit->take_measurements(AD, AD);
+  std::vector<std::vector<double>> rms = eit->get_rms();
 
   std::ostringstream streamObj;
   streamObj << std::fixed;
   // Set precision to 4 digits
   streamObj << std::setprecision(4);
-  streamObj << "GET/RMS";
+
+  streamObj << GET;
   streamObj << " ";
+  streamObj << RMS;
+  streamObj << " ";
+
   streamObj << "[";
-  for (int i = 0; i < NUM_ELECTRODES; i++) {
+  for (uint i = 0; i < rms.size(); i++) {
     streamObj << "[ ";
-    for (int j = 0; j < NUM_ELECTRODES; j++) {
-      streamObj << rms_array[i * NUM_ELECTRODES + j];
+    for (uint j = 0; j < rms[i].size(); j++) {
+      streamObj << rms[i][j];
       streamObj << " ";
     }
-    streamObj << "]\n";
+    streamObj << "]";
   }
-  streamObj << "]\n";
+  streamObj << "]";
   Serial.println(streamObj.str().c_str());
 }
 

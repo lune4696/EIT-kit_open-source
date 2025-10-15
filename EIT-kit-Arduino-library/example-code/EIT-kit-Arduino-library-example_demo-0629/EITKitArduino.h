@@ -36,6 +36,7 @@ typedef enum { SRC, SINK, VP, VN } Mux_t;
 #if defined(__IMXRT1062__) // for Teensy 4.0
 
 #include <string>
+#include <vector>
 
 #define IS_ARDUINO        0
 // defined constants 
@@ -114,6 +115,7 @@ class EITKitArduino
     EITKitArduino(int num_electrodes, int num_bands, int num_terminals, Meas_t drive_type, Meas_t meas_type);
     void ensureBluetoothConnection();
     void take_measurements(Meas_t drive_type, Meas_t meas_type); 
+    void calibrate();
     void set_num_electrodes(int num_electrodes);
     int get_num_electrodes();
     void set_num_bands(int num_bands);
@@ -136,6 +138,9 @@ class EITKitArduino
     uint16_t get_voltage_gain();
     double* get_magnitude_array();
     double* get_phase_array();
+    std::vector<std::vector<double>> get_rms();
+    std::vector<std::vector<double>> get_mag();
+    std::vector<std::vector<double>> get_phase();
  
   private:
     // Bluetooth Variables
@@ -149,8 +154,6 @@ class EITKitArduino
     uint16_t samples_per_period;
     uint16_t num_samples = 1;
     double ref_signal_mag;
-    // Buffers for use in read_signal
-    uint16_t adc_buf[MAX_SAMPLES];              // Store converted ADC samples of the input waveform
     // Temporary test values
     uint8_t pin_num = 0;
     uint16_t rheo_val = 1023;
@@ -165,11 +168,24 @@ class EITKitArduino
     bool _visualize_3d = false; // whether to create visualization in 3d 
     bool _auto_calibration = true; // whether to use built-in calibration 
 
+    struct measured{
+      uint time;
+      double rms;
+      double mag;
+      double phase;
+      double error;
+    };
+
     // Signal reading results
     double _signal_rms[NUM_MEAS];    // Store signal RMS data
     double _signal_phase[NUM_MEAS];  // Store signal phase data
     double _signal_mag[NUM_MEAS];    // Store signal magnitude data
     double _cur_frame[NUM_MEAS] = {0};
+
+    std::vector<std::vector<double>> _rms;    // Store signal RMS data
+    std::vector<std::vector<double>> _phase;  // Store signal phase data
+    std::vector<std::vector<double>> _mag;    // Store signal magnitude data
+
     double _phase_offset;
     //uint32_t _milis_prev = 0;
     uint16_t _current_amp = 0;
@@ -177,23 +193,19 @@ class EITKitArduino
     uint16_t _current_gain = 0;
     uint16_t _voltage_gain = 0;
     bool _serial_communication = true; // whether statements are printed in Serial monitor during execution
-    bool _bluetooth_communication = false;
 
-    void BLEStart();
-    void calibrateEIT();
-    void sendBluetoothMessage();
     void calibrate_samples();
-    void calibrate_gain(Meas_t drive_type, Meas_t meas_type);
-    void calibrate_signal(Meas_t drive_type, Meas_t meas_type);
+    void calibrate_gain(uint8_t src_pin, uint8_t sink_pin, uint8_t vp_pin, uint8_t vn_pin);
     void AD5270_Write(const int chip_select, uint8_t cmd, uint16_t data);
     void AD5270_LockUnlock(const int chip_select, uint8_t lock);
 
     #if defined(__IMXRT1062__) // for Teensy 4.0
-      void spi_write(uint8_t data_pin, uint8_t clock_pin, uint32_t freq, uint8_t bit_order, uint8_t mode, uint8_t bits, uint32_t val);
-      uint16_t analog_read();
-      uint32_t read_signal(double * rms, double * mag, double * phase, uint16_t * error_rate, uint8_t debug);
-      void read_volts_at(uint8_t src_pin, uint8_t sink_pin, int delay_us, uint16_t num_meas, std::vector<uint8_t> vs, double * rms_array, double * mag_array, double * phase_array);
-      void read_frame(Meas_t drive_type, Meas_t meas_type, double * rms_array, double * mag_array, double * phase_array, uint8_t num_elec);
+    void spi_write(uint8_t data_pin, uint8_t clock_pin, uint32_t freq, uint8_t bit_order, uint8_t mode, uint8_t bits, uint32_t val);
+    uint16_t analog_read();
+    measured read_signal(uint8_t debug);
+    std::vector<measured> read_volts_at(uint8_t src_pin, uint8_t sink_pin, std::vector<uint8_t> pairs, uint delay_us);
+    std::vector<uint8_t> generateElectrodePairs(Meas_t t, uint16_t n, uint8_t ground);
+    std::vector<std::vector<measured>> read_pattern(std::vector<uint8_t> pattern, Meas_t meas_type, uint delay_us);
     #endif
     void AD5270_Shutdown(const int chip_select, uint8_t shutdown);
     void AD5270_Set(const int chip_select, uint16_t val);
@@ -205,7 +217,6 @@ class EITKitArduino
     
     uint32_t gpio_read();
     uint16_t gpio_convert(uint32_t gpio_reg);
-    
     
     uint16_t sine_compare(uint16_t * signal, uint16_t pk_pk, uint16_t points_per_period, uint8_t num_periods);
 };

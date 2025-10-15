@@ -106,11 +106,7 @@ EITKitArduino::EITKitArduino(){
 
 EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminals, Meas_t drive_type, Meas_t meas_type) {
   if(_serial_communication) Serial.begin(115200);
-  //Serial.println("Serial Begin");
-  //Serial.print("SPI_FREQ: ");
-  //Serial.println(SPI_FREQ_FAST);
 
-  Serial.print("Initialize...");
   _num_electrodes = num_electrodes; // number of electrodes for measurement per band
   _num_meas = _num_electrodes*_num_electrodes;
   _num_bands = num_bands; // total number of bands used in measurement
@@ -176,42 +172,54 @@ EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminal
   mux_write_to_electrode(SINK, 1, MUX_EN);
   mux_write_to_electrode(VP, 0, MUX_EN);
   mux_write_to_electrode(VN, 1, MUX_EN);
-  #endif 
-  Serial.println("Done.");
-
-  Serial.println("Calibration...");
-  calibrateEIT();
-  Serial.println("Done.");
-
-  Serial.print("Sample rate (uS per reading): ");
-  Serial.println(sample_rate, 4);
-  Serial.print("Samples per period: ");
-  Serial.println(samples_per_period);
-  Serial.print("Drive gain: ");
-  Serial.println(_current_gain);
-  Serial.print("Measurement gain: ");
-  Serial.println(_voltage_gain);
-  Serial.print("Reference signal phase offset (radians): ");
-  Serial.println(_phase_offset, 4);
-}
-
-void EITKitArduino::calibrateEIT(){
-  _phase_offset = 0;
-  calibrate_samples();
-  calibrate_gain(AD, AD);
-  //// removed without phase
-  //#if defined(__IMXRT1062__) // for Teensy 4.0
-  //calibrate_signal(AD, AD);
-  //#endif
-}
-
-void EITKitArduino::take_measurements(Meas_t drive_type, Meas_t meas_type){
-  #if defined(__IMXRT1062__) // for Teensy 4.0
-  read_frame(_drive_type, _meas_type, _signal_rms, _signal_mag, _signal_phase, _num_electrodes);
   #endif
 }
 
+void EITKitArduino::calibrate(){
+  _phase_offset = 0;
+  calibrate_samples();
+  calibrate_gain(0, 1, 2, 3);
+  //Serial.print("Sample rate (uS per reading): ");
+  //Serial.println(sample_rate, 4);
+  //Serial.print("Samples per period: ");
+  //Serial.println(samples_per_period);
+  //Serial.print("Drive gain: ");
+  //Serial.println(_current_gain);
+  //Serial.print("Measurement gain: ");
+  //Serial.println(_voltage_gain);
+  //Serial.print("Reference signal phase offset (radians): ");
+  //Serial.println(_phase_offset, 4);
+}
+
+void EITKitArduino::take_measurements(Meas_t drive_type, Meas_t meas_type){
+  _drive_type = drive_type;
+  _meas_type = meas_type;
+  //read_frame(_drive_type, _meas_type, _signal_rms, _signal_mag, _signal_phase, _num_electrodes);
+  std::vector<uint8_t> pairs(8);
+  for (uint i = 0; i < pairs.size(); i++) pairs[i] = i;
+  std::vector<std::vector<EITKitArduino::measured>> result = read_pattern(pairs, meas_type, 200);
+  std::vector<std::vector<double>> rms(result.size());
+  std::vector<std::vector<double>> mag(result.size());
+  std::vector<std::vector<double>> phase(result.size());
+  for (uint i = 0; i < result.size(); i++) {
+    rms[i].resize(result[i].size());
+    mag[i].resize(result[i].size());
+    phase[i].resize(result[i].size());
+  }
+  for (uint i = 0; i < result.size(); i++) {
+    for (uint j = 0; j < result[i].size(); j++) {
+      rms[i][j] = result[i][j].rms;
+      mag[i][j] = result[i][j].mag;
+      phase[i][j] = result[i][j].phase;
+    }
+  }
+  _rms = rms;
+  _mag = mag;
+  _phase = phase;
+}
+
 // public set/get methods 
+// CAUTION: setter はあくまで変数を変更するだけで、計測器の状態を変更するには別途対応する関数の呼び出しが必要
 // set the total number of electrodes for measurement per band
 void EITKitArduino::set_num_electrodes(int num_electrodes) {
   _num_electrodes = num_electrodes;
@@ -321,6 +329,18 @@ double* EITKitArduino::get_magnitude_array() {
 // get phase measurements
 double* EITKitArduino::get_phase_array() {
   return _signal_phase;
+}
+
+std::vector<std::vector<double>> EITKitArduino::get_rms() {
+  return _rms;
+}
+
+std::vector<std::vector<double>> EITKitArduino::get_mag() {
+  return _mag;
+}
+
+std::vector<std::vector<double>> EITKitArduino::get_phase() {
+  return _phase;
 }
 
 #if defined(__IMXRT1062__) // for Teensy 4.0
@@ -514,16 +534,42 @@ uint16_t EITKitArduino::sine_compare(uint16_t * signal, uint16_t pk_pk, uint16_t
 
 #if defined(__IMXRT1062__) // for Teensy 4.0
 
+std::vector<uint8_t> EITKitArduino::generateElectrodePairs(Meas_t t, uint16_t n, uint8_t ground) {
+  std::vector<uint8_t> pairs(2*n);
+  for(int i = 0; i < n; i++) {
+    switch (t) {
+      case AD:
+        pairs[2*i] = i;
+        pairs[2*i + 1] = (i + 1) % n;
+        break;
+      case OP:
+        pairs[2*i] = i;
+        pairs[2*i + 1] = (i + n/2) % n;
+        break;
+      case MONO:
+        pairs[2*i] = i;
+        pairs[2*i + 1] = ground;
+        break;
+    }
+  }
+  return pairs;
+}
+
 // 所与の電流パターンにおける電圧分布を読み取り更新
-void EITKitArduino::read_volts_at(uint8_t src_pin, uint8_t sink_pin, int delay_us, uint16_t num_meas, std::vector<uint8_t> vs, double * rms_array, double * mag_array, double * phase_array) {
+std::vector<EITKitArduino::measured> EITKitArduino::read_volts_at(
+  uint8_t src_pin, 
+  uint8_t sink_pin,
+  std::vector<uint8_t> pairs, 
+  uint delay_us
+) {  
   uint8_t vp_pin, vn_pin;
-  int num_pair = vs.size() / 2;
-  for(int i = 0; i < num_pair; i++) {
-    vp_pin = vs[2*i];
-    vn_pin = vs[2*i + 1];
+  std::vector<EITKitArduino::measured> result(pairs.size() / 2);
+
+  for(uint i = 0; i < pairs.size() / 2; i++) {
+    vp_pin = pairs[2*i];
+    vn_pin = pairs[2*i + 1];
     if ((vp_pin == src_pin) || (vp_pin == vn_pin) || (src_pin == sink_pin)) {
-      mag_array[num_meas] = 0;
-      phase_array[num_meas] = 0;
+      result[i] = {};
     }
     else {
       // mux_write(CHIP_SEL_MUX_VP, elec_to_mux[vp_pin], MUX_EN);
@@ -532,64 +578,51 @@ void EITKitArduino::read_volts_at(uint8_t src_pin, uint8_t sink_pin, int delay_u
       mux_write_to_electrode(VN, vn_pin, MUX_EN);
 
       // 配列のポインタが引数になっていることに注意、ポインタ位置を起点(引数の値)からずらして渡している
-      read_signal(rms_array + num_meas, mag_array + num_meas, phase_array + num_meas, NULL, 0);
+      result[i] = read_signal(0);
     }
     delayMicroseconds(delay_us);
   }
+  return result;
 }
 
 // 各フレームでの電圧分布群を読み取り更新
-// read_volts_at() を使用する修正版
-void EITKitArduino::read_frame(Meas_t drive_type, Meas_t meas_type, double * rms_array, double * mag_array, double * phase_array, uint8_t num_elec){
-  int8_t tx_pair, rx_pair;
+// read_volts_at() を使用する
+std::vector<std::vector<EITKitArduino::measured>> EITKitArduino::read_pattern(
+  std::vector<uint8_t> pattern, 
+  Meas_t meas_type,
+  uint delay_us
+) {
   uint8_t src_pin, sink_pin;
-  uint16_t num_meas = 0;
+  std::vector<std::vector<EITKitArduino::measured>> result(pattern.size() / 2);
 
-  std::vector<uint8_t> vs(2*num_elec);
+  for(uint i = 0; i < pattern.size() / 2; i++) {
+    src_pin = pattern[2*i];
+    sink_pin = pattern[2*i + 1];
+    Serial.print("src: ");
+    Serial.print(src_pin);
+    Serial.print(", ");
+    Serial.print("sink: ");
+    Serial.print(sink_pin);
+    Serial.print(", ");
 
-  for(tx_pair = 0; tx_pair < num_elec; tx_pair++) {
-    switch (drive_type) {
-      case AD:
-        src_pin = tx_pair;
-        sink_pin = (tx_pair + 1) % num_elec;
-        break;
-      case OP:
-        src_pin = tx_pair;
-        sink_pin = (tx_pair + num_elec/2) % num_elec;
-        break;
-      case MONO:
-        src_pin = tx_pair;
-        //sink_pin = (tx_pair == 0 ? 31 : 0);
-        sink_pin = 0;
-        break;
-    }
     mux_write_to_electrode(SRC, src_pin, MUX_EN);
     mux_write_to_electrode(SINK, sink_pin, MUX_EN);
 
     delayMicroseconds(200);
 
-    for(rx_pair = 0; rx_pair < num_elec; rx_pair++, num_meas++) {
-      switch (meas_type) {
-        case AD:
-          vs[2*num_meas] = rx_pair;
-          vs[2*num_meas + 1] = (rx_pair + 1) % num_elec;
-          break;
-        case OP:
-          vs[2*num_meas] = rx_pair;
-          vs[2*num_meas + 1] = (rx_pair + num_elec/2) % num_elec;
-          break;
-        case MONO:
-          vs[2*num_meas] = rx_pair;
-          vs[2*num_meas + 1] = sink_pin;
-          break;
-      }
+    std::vector<uint8_t> pairs = generateElectrodePairs(meas_type, _num_electrodes, 0);
+    for(uint i = 0; i < pairs.size(); i++) {
+      Serial.print(pairs[i]);
+      Serial.print(", ");
     }
-    read_volts_at(src_pin, sink_pin, 100, num_meas, vs, rms_array, mag_array, phase_array);
+    Serial.println();
+    result[i] = read_volts_at(src_pin, sink_pin, pairs, 100);
   }
+  return result;
 }
 
 /* Return the magnitude and phase offset of a sinusoidal input signal */
-uint32_t EITKitArduino::read_signal(double * rms, double * mag, double * phase, uint16_t * error_rate, uint8_t debug){ 
+EITKitArduino::measured EITKitArduino::read_signal(uint8_t debug){ 
   uint16_t i, j;
   uint16_t phase_count;
   uint16_t adc_min = 1023;
@@ -616,8 +649,8 @@ uint32_t EITKitArduino::read_signal(double * rms, double * mag, double * phase, 
 
   /* Collect samples */
   for(i = 0; i < num_samples; i++) { 
-    //num_cycles = ((F_CPU_ACTUAL >> 16) * 50) / (1000000000UL >> 16);   // Number of systick cycles equal to 50ns
-    num_cycles = 20;
+    num_cycles = ((F_CPU_ACTUAL >> 16) * 50) / (1000000000UL >> 16);   // Number of systick cycles equal to 50ns
+    //num_cycles = 20;
     count = 0;
 
     // Read GPIO pins
@@ -712,31 +745,25 @@ uint32_t EITKitArduino::read_signal(double * rms, double * mag, double * phase, 
   // この 2.2 がマジックナンバーすぎる、回路絡みか？とも思ったが、sine_table の中身がサチっていることを考えると、
   // sine_table は実際に測定したデータか何かで、そのときの pk-pk がフルスイング振幅の 2.2 倍だったんじゃないか？
   // だからって何でサチってるデータを基準にしてるのかはわからないけど...
-  if (rms) *rms = (double)rms_10bit * 2.2 / 1024;
-  if (mag) *mag = (double)mag_10bit * 2.2 / 1024;                                                      
-  if (phase) *phase = (sample_rate * phase_offset_cycles / 1000000) * TEST_FREQ * 2*PI;   
+  uint16_t compare_periods = 2;
 
-  if (error_rate) {
-    // Compare measured signal to sine wave (only if >=2 period samples are available)
-    uint16_t compare_periods = 2;
-    if ((num_samples - phase_start_index) >= (samples_per_period * compare_periods)) *error_rate = sine_compare(adc_buf+phase_start_index, mag_10bit, samples_per_period, compare_periods);
-  }
-
-  return (time2 - time1);
+  return {
+    (time2 - time1),
+    (double)rms_10bit * 2.2 / 1024,
+    (double)mag_10bit * 2.2 / 1024,
+    (sample_rate * phase_offset_cycles / 1000000) * TEST_FREQ * 2*PI,
+    sine_compare(adc_buf+phase_start_index, mag_10bit, samples_per_period, compare_periods),
+  };
 }
 
 /* Find the gains that produce the highest sinusoidal current and voltage measurements */
-void EITKitArduino::calibrate_gain(Meas_t drive_type, Meas_t meas_type) {
+void EITKitArduino::calibrate_gain(uint8_t src_pin, uint8_t sink_pin, uint8_t vp_pin, uint8_t vn_pin) {
+  // 電流印加電極と電圧計測電極を一致させた上で正弦波波形を測定
   // Set current source electrodes to origin, set voltage measurement electrodes to overlap
-  mux_write_to_electrode(SRC, 0, MUX_EN);
-  mux_write_to_electrode(VP, 0, MUX_EN);
-  if (drive_type == AD) {
-    mux_write_to_electrode(SINK, 1, MUX_EN);
-    mux_write_to_electrode(VN, 1, MUX_EN);
-  } else if (drive_type == OP) {
-    mux_write_to_electrode(SINK, 16, MUX_EN);
-    mux_write_to_electrode(VN, 16, MUX_EN);
-  }
+  mux_write_to_electrode(SRC, src_pin, MUX_EN);
+  mux_write_to_electrode(VP, src_pin, MUX_EN);
+  mux_write_to_electrode(SINK, sink_pin, MUX_EN);
+  mux_write_to_electrode(VN, sink_pin, MUX_EN);
 
   delay(5);
 
@@ -753,14 +780,12 @@ void EITKitArduino::calibrate_gain(Meas_t drive_type, Meas_t meas_type) {
     AD5270_Set(CHIP_SEL_DRIVE, _current_gain);
     delayMicroseconds(500);
 
-    double mag;
-    uint16_t error;
     mag_sum = 0;
     error_sum = 0;
     for (j = 0; j < 10; j++) {
-        read_signal(NULL, &mag, NULL, &error, 0);
-        mag_sum += mag;
-        error_sum += error;
+      EITKitArduino::measured result = read_signal(0);
+      mag_sum += result.mag;
+      error_sum += result.error;
     }
     mag_sum = mag_sum / 10;
     error_sum = error_sum / 10;
@@ -770,13 +795,8 @@ void EITKitArduino::calibrate_gain(Meas_t drive_type, Meas_t meas_type) {
   }
 
   // Set voltage measurement electrodes to the highest voltage differential point
-  if (meas_type == AD) {
-    mux_write_to_electrode(VP, 2, MUX_EN);
-    mux_write_to_electrode(VN, 3, MUX_EN);
-  } else if (meas_type == OP) {
-    mux_write_to_electrode(VP, 1, MUX_EN);
-    mux_write_to_electrode(VN, 17, MUX_EN);
-  }
+  mux_write_to_electrode(VP, vp_pin, MUX_EN);
+  mux_write_to_electrode(VN, vn_pin, MUX_EN);
 
   delay(5);
 
@@ -788,14 +808,12 @@ void EITKitArduino::calibrate_gain(Meas_t drive_type, Meas_t meas_type) {
     AD5270_Set(CHIP_SEL_MEAS, _voltage_gain);
     delayMicroseconds(500);
 
-    double mag;
-    uint16_t error;
     mag_sum = 0;
     error_sum = 0;
     for (j = 0; j < 10; j++) {
-      read_signal(NULL, &mag, NULL, &error, 0);
-      mag_sum += mag;
-      error_sum += error;
+      EITKitArduino::measured result = read_signal(0);
+      mag_sum += result.mag;
+      error_sum += result.error;
     }
     mag_sum = mag_sum / 10;
     error_sum = error_sum / 10;
@@ -816,42 +834,11 @@ void EITKitArduino::calibrate_samples(){
   /* Take many samples to determine sample rate */
   num_samples = MAX_SAMPLES; // これいる？と思ったのだが、最悪なことにグローバル変数として read_signal の中で使っている　クソ
   #if defined(__IMXRT1062__) // for Teensy 4.0
-  uint32_t sample_time = read_signal(NULL, NULL, NULL, NULL, 0);
+  EITKitArduino::measured result = read_signal(0);
+  uint sample_time = result.time;
   #endif
   /* Calculate sample rate and total number of samples */
   sample_rate = (float)sample_time / MAX_SAMPLES; // microsec to read each measurement ADV_AVG number of times
   samples_per_period = (1000000 / sample_rate) / TEST_FREQ; // [measurements read] / [current cycles]
   num_samples = samples_per_period * NUM_PERIODS; 
 }
-
-// これも何もやってないんだけど...
-///* Find the magnitude and phase offset of the highest voltage differental point */
-//void EITKitArduino::calibrate_signal(Meas_t drive_type, Meas_t meas_type){
-//
-//  // Set current source electrodes to origin
-//  mux_write_to_electrode(SRC, 0, MUX_EN);
-//  if (drive_type == AD)
-//    mux_write_to_electrode(SINK, 1, MUX_EN);
-//  else if (drive_type == OP)
-//    mux_write_to_electrode(SINK, 16, MUX_EN);
-//
-//  // Set voltage measurement electrodes to the highest voltage differential point
-//  if (meas_type == AD) {
-//    mux_write_to_electrode(VP, 30, MUX_EN);
-//    mux_write_to_electrode(VN, 31, MUX_EN);
-//  } else if (meas_type == OP) {
-//    mux_write_to_electrode(VP, 15, MUX_EN);
-//    mux_write_to_electrode(VN, 31, MUX_EN);
-//  }
-//
-//  delay(5);
-//
-//  /* Determine the phase offset of the reference signal */
-//  _phase_offset = 0;
-//  // uint32_t sample_time = read_signal(NULL, &_phase_offset, NULL, 0);
-//
-//  mux_write_to_electrode(SRC, 0, MUX_DIS);
-//  mux_write_to_electrode(SINK, 0, MUX_DIS);
-//  mux_write_to_electrode(VP, 0, MUX_DIS);
-//  mux_write_to_electrode(VN, 0, MUX_DIS);
-//}
