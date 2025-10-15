@@ -168,15 +168,15 @@ class EITKitArduino
     // Signal reading results
     double _signal_rms[NUM_MEAS];    // Store signal RMS data
     double _signal_phase[NUM_MEAS];  // Store signal phase data
-    double signal_mag[NUM_MEAS];    // Store signal magnitude data
+    double _signal_mag[NUM_MEAS];    // Store signal magnitude data
     double _cur_frame[NUM_MEAS] = {0};
     double _phase_offset;
-    uint32_t frame_delay = 0;
+    //uint32_t _milis_prev = 0;
     uint16_t _current_amp = 0;
     uint16_t _current_freq = 0;
     uint16_t _current_gain = 0;
     uint16_t _voltage_gain = 0;
-    bool serial_communication = true; // whether statements are printed in Serial monitor during execution
+    bool _serial_communication = true; // whether statements are printed in Serial monitor during execution
     bool _bluetooth_communication = false;
 
     void BLEStart();
