@@ -24,17 +24,44 @@ auto ident_vec_start = "[";
 auto ident_vec_end = "]";
 auto ident_map_start = "{";
 auto ident_map_end = "}";
-auto ident_op = ":";
+auto ident_method = ":";
 
+String normalizeSpaces(String s) {
+    String out = "";
+    bool inSpace = false;
+    for (uint i = 0; i < s.length(); ++i) {
+        char c = s[i];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+            if (!inSpace) {
+                out += ' ';
+                inSpace = true;
+            }
+        } else {
+            out += c;
+            inSpace = false;
+        }
+    }
+    return out;
+}
+
+// 現状のパース機構は複数文字空白を強制的に正規化するので string ("...") を受け付けない
 Parser::request parseInput(String input) {
   input.replace(",", "");
+  input.replace("[", "[ ");
+  input.replace("]", " ]");
+  input.replace("{", "{ ");
+  input.replace("}", " }");
+  input = normalizeSpaces(input);
   input.trim();
+  Serial.println(input);
 
   int start = input.indexOf(ident_map_start);
   int end = input.indexOf(ident_map_end);
   String req = input.substring(start+1, end);
+  req.trim();
+  Serial.println(req);
 
-  String method = req.substring(0, req.indexOf(ident_space));
+  String method = req.substring(req.indexOf(ident_method), req.indexOf(ident_space));
   req = req.substring(req.indexOf(ident_space) + 1);
 
   String path = req.substring(0, req.indexOf(ident_space));
@@ -54,13 +81,12 @@ std::vector<String> parsePath(String path) {
     result.push_back(section);
     if (-1 == rest.indexOf(ident_slash)) break;
     rest = rest.substring(rest.indexOf(ident_slash) + 1);
-    delay(1000);
   }
   return result;
 }
 
 void routePath(std::vector<String> path, String args) {
-  
+
 }
 
 void setup() {
