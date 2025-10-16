@@ -1,5 +1,5 @@
 /*
-  EITKitArduino.cpp - Library for EIT-kit Sensing Board.
+  EITKit.cpp - Library for EIT-kit Sensing Board.
   Will be released into the public domain.
 */
 
@@ -9,7 +9,7 @@
    #include <WProgram.h>  // Arduino 0022
  #endif
 
-#include "EITKitArduino.h"
+#include "EITKit.h"
 #include "SPI.h"
 #include "assert.h"
 #include <string>
@@ -98,22 +98,7 @@ extern volatile uint32_t F_CPU_ACTUAL;
 extern const uint8_t pin_to_channel[42];
 uint32_t gpio_buf[MAX_SAMPLES*ADC_AVG];     // Store raw GPIO readings
 
-// auto_calibration is default on
-// visualize 3d is default off
-EITKitArduino::EITKitArduino(){
-  EITKitArduino(16, 1, 4, AD, AD);
-}
-
-EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminals, Meas_t drive_type, Meas_t meas_type) {
-  if(_serial_communication) Serial.begin(115200);
-
-  _num_electrodes = num_electrodes; // number of electrodes for measurement per band
-  _num_meas = _num_electrodes*_num_electrodes;
-  _num_bands = num_bands; // total number of bands used in measurement
-  _num_terminals = num_terminals; // 2-terminal or 4-terminal measurement protocol
-  _drive_type = drive_type; // protocol for electrodes used in excitation current
-  _meas_type = meas_type; // protocol for electrodes used in voltage reading 
-
+EITKit::EITKit() {
   // Initialize CS on high and toggle low when communicating
   pinMode(CHIP_SEL_DRIVE, OUTPUT);
   pinMode(CHIP_SEL_MEAS, OUTPUT);
@@ -175,8 +160,7 @@ EITKitArduino::EITKitArduino(int num_electrodes, int num_bands, int num_terminal
   #endif
 }
 
-void EITKitArduino::calibrate(){
-  _phase_offset = 0;
+void EITKit::calibrate(){
   calibrate_samples();
   calibrate_gain(0, 1, 2, 3);
   //Serial.print("Sample rate (uS per reading): ");
@@ -191,13 +175,10 @@ void EITKitArduino::calibrate(){
   //Serial.println(_phase_offset, 4);
 }
 
-void EITKitArduino::take_measurements(Meas_t drive_type, Meas_t meas_type){
-  _drive_type = drive_type;
-  _meas_type = meas_type;
-  //read_frame(_drive_type, _meas_type, _signal_rms, _signal_mag, _signal_phase, _num_electrodes);
-  std::vector<uint8_t> pairs(8);
+void EITKit::take_measurements(uint n_elec, Meas_t meas_type){
+  std::vector<uint8_t> pairs(n_elec);
   for (uint i = 0; i < pairs.size(); i++) pairs[i] = i;
-  std::vector<std::vector<EITKitArduino::measured>> result = read_pattern(pairs, meas_type, 200);
+  std::vector<std::vector<EITKit::measured>> result = read_pattern(pairs, n_elec, meas_type, 200);
   std::vector<std::vector<double>> rms(result.size());
   std::vector<std::vector<double>> mag(result.size());
   std::vector<std::vector<double>> phase(result.size());
@@ -220,133 +201,54 @@ void EITKitArduino::take_measurements(Meas_t drive_type, Meas_t meas_type){
 
 // public set/get methods 
 // CAUTION: setter はあくまで変数を変更するだけで、計測器の状態を変更するには別途対応する関数の呼び出しが必要
-// set the total number of electrodes for measurement per band
-void EITKitArduino::set_num_electrodes(int num_electrodes) {
-  _num_electrodes = num_electrodes;
-}
-
-// get the total number of electrodes for measurement per band
-int EITKitArduino::get_num_electrodes() {
-  return _num_electrodes;
-}
-
-// set the total number of bands used in measurement
-void EITKitArduino::set_num_bands(int num_bands) {
-  _num_bands = num_bands;
-}
-
-// get the total number of bands used in measurement
-int EITKitArduino::get_num_bands() {
-  return _num_bands;
-}
-
-// set the measurement protocol: 2-terminal or 4-terminal 
-void EITKitArduino::set_num_terminals(int num_terminals) {
-  _num_terminals = num_terminals;
-}
-
-// get the measurement protocol: 2-terminal or 4-terminal 
-int EITKitArduino::get_num_terminals() {
-  return _num_terminals;
-}
-
-// set the protocol for electrodes used in voltage reading 
-void EITKitArduino::set_meas_type(Meas_t meas_type) {
-  _meas_type = meas_type;
-}
-
-// get the protocol for electrodes used in voltage reading 
-Meas_t EITKitArduino::get_meas_type() {
-  return _meas_type;
-}
-
-// set the protocol for electrodes used in voltage reading 
-void EITKitArduino::set_drive_type(Meas_t drive_type) {
-  _drive_type = drive_type;
-}
-
-// get the protocol for electrodes used in voltage reading 
-Meas_t EITKitArduino::get_drive_type() {
-  return _drive_type;
-}
-
-// set whether to create visualization in 3d 
-void EITKitArduino::set_visualize_3d(bool visualize_3d) {
-  _visualize_3d = visualize_3d;
-}
-
-// get whether a visualization in 3d will be created
-bool EITKitArduino::get_visualize_3d() {
-  return _visualize_3d;
-}
-
-// set whether to use built-in calibration 
-void EITKitArduino::set_auto_calibration(bool auto_calibration) {
-  _auto_calibration = auto_calibration;
-}
-
-// get whether to built-in calibration will be performed
-bool EITKitArduino::get_auto_calibration() {
-  return _auto_calibration;
-}
 
 /* set the AC current frequency
  default value is 50kHx */
-void EITKitArduino::set_current_freq(uint16_t current_freq) {
+void EITKit::set_current_freq(uint16_t current_freq) {
   _current_freq = current_freq;
 }
 
 // get the AC current frequency
-uint16_t EITKitArduino::get_current_freq() {
+uint16_t EITKit::get_current_freq() {
   return _current_freq;
 }
 
 // set the AC current gain 
-void EITKitArduino::set_current_gain(uint16_t current_gain) {
+void EITKit::set_current_gain(uint16_t current_gain) {
   _current_gain = current_gain;
 }
 
 // get the AC current gain
-uint16_t EITKitArduino::get_current_gain() {
+uint16_t EITKit::get_current_gain() {
   return _current_gain;
 }
 
 // set the voltage gain 
-void EITKitArduino::set_voltage_gain(uint16_t voltage_gain) {
+void EITKit::set_voltage_gain(uint16_t voltage_gain) {
   _voltage_gain = voltage_gain;
 }
 
 // get the voltage gain
-uint16_t EITKitArduino::get_voltage_gain() {
+uint16_t EITKit::get_voltage_gain() {
   return _voltage_gain;
 }
 
-// get magnitude measurements
-double* EITKitArduino::get_magnitude_array() {
-  return _signal_rms;
-}
-
-// get phase measurements
-double* EITKitArduino::get_phase_array() {
-  return _signal_phase;
-}
-
-std::vector<std::vector<double>> EITKitArduino::get_rms() {
+std::vector<std::vector<double>> EITKit::get_rms() {
   return _rms;
 }
 
-std::vector<std::vector<double>> EITKitArduino::get_mag() {
+std::vector<std::vector<double>> EITKit::get_mag() {
   return _mag;
 }
 
-std::vector<std::vector<double>> EITKitArduino::get_phase() {
+std::vector<std::vector<double>> EITKit::get_phase() {
   return _phase;
 }
 
 #if defined(__IMXRT1062__) // for Teensy 4.0
 
 /* Write a 4-bit command and a 10-bit data word */
-void EITKitArduino::AD5270_Write(const int chip_sel, uint8_t cmd, uint16_t data) {
+void EITKit::AD5270_Write(const int chip_sel, uint8_t cmd, uint16_t data) {
     uint16_t data_word = ((cmd & 0x0F) << 10) | (data & 0x03FF);
   
     digitalWrite(chip_sel, LOW);
@@ -357,7 +259,7 @@ void EITKitArduino::AD5270_Write(const int chip_sel, uint8_t cmd, uint16_t data)
 }
 
 /* Shift a byte out serially with the given frequency in Hz (<= 500kHz) */
-void EITKitArduino::spi_write(uint8_t data_pin, uint8_t clock_pin, uint32_t freq, uint8_t bit_order, uint8_t mode, uint8_t bits, uint32_t val) {
+void EITKit::spi_write(uint8_t data_pin, uint8_t clock_pin, uint32_t freq, uint8_t bit_order, uint8_t mode, uint8_t bits, uint32_t val) {
     uint32_t period = (freq >= 500000) ? 1 : (500000 / freq);   // Half clock period in uS
     uint8_t cpol = (mode == SPI_MODE2 || mode == SPI_MODE3);
     uint8_t cpha = (mode == SPI_MODE1 || mode == SPI_MODE3);
@@ -402,7 +304,7 @@ void EITKitArduino::spi_write(uint8_t data_pin, uint8_t clock_pin, uint32_t freq
     }
 }
 
-uint16_t EITKitArduino::analog_read()
+uint16_t EITKit::analog_read()
 {
     // GPIO reg bit order: 2, 3, 16, 17, 18, 19, 22, 23, 24, 25, 26, 27
     // Teensy pin order:   1, 0, 19, 18, 14, 15, 17, 16, 22, 23, 20, 21
@@ -422,23 +324,23 @@ uint16_t EITKitArduino::analog_read()
 #endif
 
 /* Enable/disable rheostat value changes */
-void EITKitArduino::AD5270_LockUnlock(const int chip_select, uint8_t lock){
+void EITKit::AD5270_LockUnlock(const int chip_select, uint8_t lock){
   AD5270_Write(chip_select, CMD_WR_CTRL, lock ? 0 : 0x002);
 }
 
 /* Enable/disable hardware shutdown */
-void EITKitArduino::AD5270_Shutdown(const int chip_select, uint8_t shutdown){
+void EITKit::AD5270_Shutdown(const int chip_select, uint8_t shutdown){
   AD5270_Write(chip_select, CMD_SHTDN, shutdown ? 1 : 0);
 }
 
 /* Set the value of the digital rheostat - range is 0-0x3FF (0-100kOhm) */
-void EITKitArduino::AD5270_Set(const int chip_select, uint16_t val)
+void EITKit::AD5270_Set(const int chip_select, uint16_t val)
 {
   AD5270_Write(chip_select, CMD_WR_RDAC, val);
 }
 
 /* Write a 12-bit data word into a register. Register addresses are 4 bits */
-void EITKitArduino::AD5930_Write(uint8_t reg, uint16_t data){
+void EITKit::AD5930_Write(uint8_t reg, uint16_t data){
   uint16_t data_word = ((reg & 0x0F) << 12) | (data & 0x0FFF);
 
   #if defined(__IMXRT1062__) // for Teensy 4.0
@@ -449,7 +351,7 @@ void EITKitArduino::AD5930_Write(uint8_t reg, uint16_t data){
 }
 
 /* Program the given frequency (in Hz) */
-void EITKitArduino::AD5930_Set_Start_Freq(uint32_t freq){
+void EITKit::AD5930_Set_Start_Freq(uint32_t freq){
   uint32_t scaled_freq = (freq * 1.0 / AD5930_CLK_FREQ) * 0x00FFFFFF;
   uint16_t freq_low = scaled_freq & 0x0FFF;
   uint16_t freq_high = (scaled_freq >> 12) & 0x0FFF;
@@ -458,7 +360,7 @@ void EITKitArduino::AD5930_Set_Start_Freq(uint32_t freq){
   AD5930_Write(SFREQ_HIGH_REG, freq_high);
 }
 
-void EITKitArduino::mux_write(const int chip_select, uint8_t pin_sel, uint8_t enable){
+void EITKit::mux_write(const int chip_select, uint8_t pin_sel, uint8_t enable){
   #if defined(__IMXRT1062__) // for Teensy 4.0
   digitalWrite(chip_select, LOW);
   if (enable)
@@ -469,7 +371,7 @@ void EITKitArduino::mux_write(const int chip_select, uint8_t pin_sel, uint8_t en
   #endif
 }
 
-void EITKitArduino::mux_write_to_electrode(Mux_t chip_select, uint8_t electrode_sel, uint8_t enable){
+void EITKit::mux_write_to_electrode(Mux_t chip_select, uint8_t electrode_sel, uint8_t enable){
   if(electrode_sel<32){
     int cs_pin = 0;
     switch(chip_select){
@@ -487,14 +389,14 @@ void EITKitArduino::mux_write_to_electrode(Mux_t chip_select, uint8_t electrode_
 }
 
 /* Read GPIO 0-31 (takes ~50.1ns) */
-uint32_t EITKitArduino::gpio_read(){
+uint32_t EITKit::gpio_read(){
   #if defined(__IMXRT1062__) // for Teensy 4.0
   return (*(&GPIO6_DR + 2) >> 16);
   #endif
 }
 
 /* Convert GPIO reading to 10-bit unsigned integer */
-uint16_t EITKitArduino::gpio_convert(uint32_t gpio_reg){
+uint16_t EITKit::gpio_convert(uint32_t gpio_reg){
   #if defined(__IMXRT1062__) // for Teensy 4.0
   uint16_t val = ((gpio_reg & 0x0200) >> 9) | // Pin 23 (GPIO 25)
                    ((gpio_reg & 0x0100) >> 7) | // Pin 22 (GPIO 24)
@@ -508,7 +410,7 @@ uint16_t EITKitArduino::gpio_convert(uint32_t gpio_reg){
   return val;
 }
 
-uint16_t EITKitArduino::sine_compare(uint16_t * signal, uint16_t pk_pk, uint16_t points_per_period, uint8_t num_periods){
+uint16_t EITKit::sine_compare(uint16_t * signal, uint16_t pk_pk, uint16_t points_per_period, uint16_t num_periods){
   if (points_per_period == 0) return 0;
 
   uint16_t num_points = points_per_period * num_periods;
@@ -534,7 +436,7 @@ uint16_t EITKitArduino::sine_compare(uint16_t * signal, uint16_t pk_pk, uint16_t
 
 #if defined(__IMXRT1062__) // for Teensy 4.0
 
-std::vector<uint8_t> EITKitArduino::generateElectrodePairs(Meas_t t, uint16_t n, uint8_t ground) {
+std::vector<uint8_t> EITKit::generateElectrodePairs(Meas_t t, uint16_t n, uint8_t ground) {
   std::vector<uint8_t> pairs(2*n);
   for(int i = 0; i < n; i++) {
     switch (t) {
@@ -556,14 +458,14 @@ std::vector<uint8_t> EITKitArduino::generateElectrodePairs(Meas_t t, uint16_t n,
 }
 
 // 所与の電流パターンにおける電圧分布を読み取り更新
-std::vector<EITKitArduino::measured> EITKitArduino::read_volts_at(
+std::vector<EITKit::measured> EITKit::read_volts_at(
   uint8_t src_pin, 
   uint8_t sink_pin,
   std::vector<uint8_t> pairs, 
   uint delay_us
 ) {  
   uint8_t vp_pin, vn_pin;
-  std::vector<EITKitArduino::measured> result(pairs.size() / 2);
+  std::vector<EITKit::measured> result(pairs.size() / 2);
 
   for(uint i = 0; i < pairs.size() / 2; i++) {
     vp_pin = pairs[2*i];
@@ -587,13 +489,14 @@ std::vector<EITKitArduino::measured> EITKitArduino::read_volts_at(
 
 // 各フレームでの電圧分布群を読み取り更新
 // read_volts_at() を使用する
-std::vector<std::vector<EITKitArduino::measured>> EITKitArduino::read_pattern(
-  std::vector<uint8_t> pattern, 
+std::vector<std::vector<EITKit::measured>> EITKit::read_pattern(
+  std::vector<uint8_t> pattern,
+  int n_elec,
   Meas_t meas_type,
   uint delay_us
 ) {
   uint8_t src_pin, sink_pin;
-  std::vector<std::vector<EITKitArduino::measured>> result(pattern.size() / 2);
+  std::vector<std::vector<EITKit::measured>> result(pattern.size() / 2);
 
   for(uint i = 0; i < pattern.size() / 2; i++) {
     src_pin = pattern[2*i];
@@ -610,7 +513,7 @@ std::vector<std::vector<EITKitArduino::measured>> EITKitArduino::read_pattern(
 
     delayMicroseconds(200);
 
-    std::vector<uint8_t> pairs = generateElectrodePairs(meas_type, _num_electrodes, 0);
+    std::vector<uint8_t> pairs = generateElectrodePairs(meas_type, n_elec, 0);
     for(uint i = 0; i < pairs.size(); i++) {
       Serial.print(pairs[i]);
       Serial.print(", ");
@@ -622,9 +525,9 @@ std::vector<std::vector<EITKitArduino::measured>> EITKitArduino::read_pattern(
 }
 
 /* Return the magnitude and phase offset of a sinusoidal input signal */
-EITKitArduino::measured EITKitArduino::read_signal(uint8_t debug){ 
+EITKit::measured EITKit::read_signal(uint8_t debug){ 
   uint16_t i, j;
-  uint16_t phase_count;
+  uint16_t phase_count = 0;
   uint16_t adc_min = 1023;
   uint16_t adc_max = 0;
   uint8_t adc_peak_count = 0;
@@ -752,12 +655,12 @@ EITKitArduino::measured EITKitArduino::read_signal(uint8_t debug){
     (double)rms_10bit * 2.2 / 1024,
     (double)mag_10bit * 2.2 / 1024,
     (sample_rate * phase_offset_cycles / 1000000) * TEST_FREQ * 2*PI,
-    sine_compare(adc_buf+phase_start_index, mag_10bit, samples_per_period, compare_periods),
+    (double)sine_compare(adc_buf+phase_start_index, mag_10bit, samples_per_period, compare_periods),
   };
 }
 
 /* Find the gains that produce the highest sinusoidal current and voltage measurements */
-void EITKitArduino::calibrate_gain(uint8_t src_pin, uint8_t sink_pin, uint8_t vp_pin, uint8_t vn_pin) {
+void EITKit::calibrate_gain(uint8_t src_pin, uint8_t sink_pin, uint8_t vp_pin, uint8_t vn_pin) {
   // 電流印加電極と電圧計測電極を一致させた上で正弦波波形を測定
   // Set current source electrodes to origin, set voltage measurement electrodes to overlap
   mux_write_to_electrode(SRC, src_pin, MUX_EN);
@@ -783,7 +686,7 @@ void EITKitArduino::calibrate_gain(uint8_t src_pin, uint8_t sink_pin, uint8_t vp
     mag_sum = 0;
     error_sum = 0;
     for (j = 0; j < 10; j++) {
-      EITKitArduino::measured result = read_signal(0);
+      EITKit::measured result = read_signal(0);
       mag_sum += result.mag;
       error_sum += result.error;
     }
@@ -811,7 +714,7 @@ void EITKitArduino::calibrate_gain(uint8_t src_pin, uint8_t sink_pin, uint8_t vp
     mag_sum = 0;
     error_sum = 0;
     for (j = 0; j < 10; j++) {
-      EITKitArduino::measured result = read_signal(0);
+      EITKit::measured result = read_signal(0);
       mag_sum += result.mag;
       error_sum += result.error;
     }
@@ -829,12 +732,12 @@ void EITKitArduino::calibrate_gain(uint8_t src_pin, uint8_t sink_pin, uint8_t vp
 #endif
 
 /* Find the optimal number of samples to read the desired number of periods of the input signal */
-void EITKitArduino::calibrate_samples(){
+void EITKit::calibrate_samples(){
 
   /* Take many samples to determine sample rate */
   num_samples = MAX_SAMPLES; // これいる？と思ったのだが、最悪なことにグローバル変数として read_signal の中で使っている　クソ
   #if defined(__IMXRT1062__) // for Teensy 4.0
-  EITKitArduino::measured result = read_signal(0);
+  EITKit::measured result = read_signal(0);
   uint sample_time = result.time;
   #endif
   /* Calculate sample rate and total number of samples */

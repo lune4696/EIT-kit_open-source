@@ -1,9 +1,9 @@
 /*
-  EITKitArduino.h - Library for EIT-kit Sensing Board.
+  EITKit.h - Library for EIT-kit Sensing Board.
   Will be released into the public domain.
 */
-#ifndef EITKitArduino_h
-#define EITKitArduino_h
+#ifndef EITKit_h
+#define EITKit_h
 
 
 #if ARDUINO>=100
@@ -16,8 +16,6 @@
 
 #define MUX_EN             1
 #define MUX_DIS            0
-#define NUM_ELECTRODES     32
-#define NUM_MEAS           NUM_ELECTRODES*NUM_ELECTRODES //used only for instantiation of measurement arrays
 #define MAX_ELECTRODES     64 // maximum electrodes that can be used
 
 // AD5930 register addresses - signal generator
@@ -108,36 +106,20 @@ typedef enum { SRC, SINK, VP, VN } Mux_t;
 
 #endif
 
-class EITKitArduino
+class EITKit
 {
   public:
-    EITKitArduino();
-    EITKitArduino(int num_electrodes, int num_bands, int num_terminals, Meas_t drive_type, Meas_t meas_type);
-    void ensureBluetoothConnection();
-    void take_measurements(Meas_t drive_type, Meas_t meas_type); 
+    EITKit();
+    void take_measurements(uint n_elec, Meas_t meas_type); 
     void calibrate();
-    void set_num_electrodes(int num_electrodes);
-    int get_num_electrodes();
-    void set_num_bands(int num_bands);
-    int get_num_bands();
-    void set_num_terminals(int num_terminals);
-    int get_num_terminals();
-    void set_meas_type(Meas_t meas_type);
-    Meas_t get_meas_type();
-    void set_drive_type(Meas_t drive_type);
-    Meas_t get_drive_type();
-    void set_visualize_3d(bool visualize_3d);
-    bool get_visualize_3d();
-    void set_auto_calibration(bool auto_calibration);
-    bool get_auto_calibration();
+
     void set_current_freq(uint16_t current_freq);
     uint16_t get_current_freq();
     void set_current_gain(uint16_t current_gain);
     uint16_t get_current_gain();
     void set_voltage_gain(uint16_t voltage_gain);
     uint16_t get_voltage_gain();
-    double* get_magnitude_array();
-    double* get_phase_array();
+    
     std::vector<std::vector<double>> get_rms();
     std::vector<std::vector<double>> get_mag();
     std::vector<std::vector<double>> get_phase();
@@ -153,20 +135,11 @@ class EITKitArduino
     float sample_rate;
     uint16_t samples_per_period;
     uint16_t num_samples = 1;
-    double ref_signal_mag;
-    // Temporary test values
-    uint8_t pin_num = 0;
-    uint16_t rheo_val = 1023;
 
-    // Measurement Settings
-    int _num_electrodes = 8; // total number of electrodes for measurement per band
-    int _num_meas = _num_electrodes*_num_electrodes; // total number of electrodes for measurement per band
-    int _num_bands = 1; // total number of bands used in measurement
-    int _num_terminals = 4; // 2-terminal or 4-terminal measurement protocol, 4 terminal is the default
-    Meas_t _drive_type = AD; // protocol for electrodes used in voltage reading 
-    Meas_t _meas_type = AD; // protocol for electrodes used in voltage reading 
-    bool _visualize_3d = false; // whether to create visualization in 3d 
-    bool _auto_calibration = true; // whether to use built-in calibration 
+    uint16_t _current_amp = 0;
+    uint16_t _current_freq = 0;
+    uint16_t _current_gain = 0;
+    uint16_t _voltage_gain = 0;
 
     struct measured{
       uint time;
@@ -177,22 +150,9 @@ class EITKitArduino
     };
 
     // Signal reading results
-    double _signal_rms[NUM_MEAS];    // Store signal RMS data
-    double _signal_phase[NUM_MEAS];  // Store signal phase data
-    double _signal_mag[NUM_MEAS];    // Store signal magnitude data
-    double _cur_frame[NUM_MEAS] = {0};
-
     std::vector<std::vector<double>> _rms;    // Store signal RMS data
     std::vector<std::vector<double>> _phase;  // Store signal phase data
     std::vector<std::vector<double>> _mag;    // Store signal magnitude data
-
-    double _phase_offset;
-    //uint32_t _milis_prev = 0;
-    uint16_t _current_amp = 0;
-    uint16_t _current_freq = 0;
-    uint16_t _current_gain = 0;
-    uint16_t _voltage_gain = 0;
-    bool _serial_communication = true; // whether statements are printed in Serial monitor during execution
 
     void calibrate_samples();
     void calibrate_gain(uint8_t src_pin, uint8_t sink_pin, uint8_t vp_pin, uint8_t vn_pin);
@@ -205,8 +165,9 @@ class EITKitArduino
     measured read_signal(uint8_t debug);
     std::vector<measured> read_volts_at(uint8_t src_pin, uint8_t sink_pin, std::vector<uint8_t> pairs, uint delay_us);
     std::vector<uint8_t> generateElectrodePairs(Meas_t t, uint16_t n, uint8_t ground);
-    std::vector<std::vector<measured>> read_pattern(std::vector<uint8_t> pattern, Meas_t meas_type, uint delay_us);
+    std::vector<std::vector<measured>> read_pattern(std::vector<uint8_t> pattern, int n_elec, Meas_t meas_type, uint delay_us);
     #endif
+
     void AD5270_Shutdown(const int chip_select, uint8_t shutdown);
     void AD5270_Set(const int chip_select, uint16_t val);
     void AD5930_Write(uint8_t reg, uint16_t data);
@@ -218,7 +179,7 @@ class EITKitArduino
     uint32_t gpio_read();
     uint16_t gpio_convert(uint32_t gpio_reg);
     
-    uint16_t sine_compare(uint16_t * signal, uint16_t pk_pk, uint16_t points_per_period, uint8_t num_periods);
+    uint16_t sine_compare(uint16_t * signal, uint16_t pk_pk, uint16_t points_per_period, uint16_t num_periods);
 };
 
 #endif
