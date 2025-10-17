@@ -153,7 +153,7 @@ void routing(std::ostringstream& streamObj, std::vector<String> path, String arg
 
     case Func::MEAS: {
         //auto t = micros();
-        auto result = eit->take_measurements(8, AD); // 10.9 ms (8, AD)
+        auto result = eit->take_measurements(4, AD); // 10.9 ms (8, AD)
         //Serial.print("time.take_measurements: ");
         //Serial.println(micros() - t);
         auto argvec = parseArgs(args);
