@@ -49,7 +49,7 @@ typedef enum { SRC, SINK, VP, VN } Mux_t;
 #define SCK_PIN            4
 
 #define AD5930_CLK_FREQ    50000000
-#define TEST_FREQ          40000
+#define TEST_FREQ          100000
 #define NUM_PERIODS        5        // Number of signal periods to measure
 #define ADC_AVG            7        // Number of ADC samples to average for each analog reading
 
@@ -110,7 +110,16 @@ class EITKit
 {
   public:
     EITKit();
-    void take_measurements(uint n_elec, Meas_t meas_type); 
+
+    struct measured{
+      uint time;
+      double rms;
+      double mag;
+      double phase;
+      double error;
+    };
+
+    std::vector<std::vector<measured>> take_measurements(uint n_elec, Meas_t meas_type); 
     void calibrate();
 
     void set_current_freq(uint16_t current_freq);
@@ -119,17 +128,13 @@ class EITKit
     uint16_t get_current_gain();
     void set_voltage_gain(uint16_t voltage_gain);
     uint16_t get_voltage_gain();
-    
-    std::vector<std::vector<double>> get_rms();
-    std::vector<std::vector<double>> get_mag();
-    std::vector<std::vector<double>> get_phase();
  
   private:
     // Bluetooth Variables
     std::string measurements_to_send = "";
     // Mapping of electrode number (input) to MUX channel (output)
-    // const uint8_t elec_to_mux[MAX_ELECTRODES] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16};
-    const uint8_t elec_to_mux[MAX_ELECTRODES] = { 9, 10, 11, 8, 7, 6, 5, 4, 3, 2, 1, 0, 12, 13, 14, 15, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16};
+    const uint8_t elec_to_mux[MAX_ELECTRODES] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 };
+    //const uint8_t elec_to_mux[MAX_ELECTRODES] = { 9, 10, 11, 8, 7, 6, 5, 4, 3, 2, 1, 0, 12, 13, 14, 15, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16 };
 
     // Global calibration parameters
     float sample_rate;
@@ -140,19 +145,6 @@ class EITKit
     uint16_t _current_freq = 0;
     uint16_t _current_gain = 0;
     uint16_t _voltage_gain = 0;
-
-    struct measured{
-      uint time;
-      double rms;
-      double mag;
-      double phase;
-      double error;
-    };
-
-    // Signal reading results
-    std::vector<std::vector<double>> _rms;    // Store signal RMS data
-    std::vector<std::vector<double>> _phase;  // Store signal phase data
-    std::vector<std::vector<double>> _mag;    // Store signal magnitude data
 
     void calibrate_samples();
     void calibrate_gain(uint8_t src_pin, uint8_t sink_pin, uint8_t vp_pin, uint8_t vn_pin);

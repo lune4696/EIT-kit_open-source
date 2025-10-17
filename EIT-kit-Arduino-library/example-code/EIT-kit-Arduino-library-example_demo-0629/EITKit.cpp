@@ -163,43 +163,33 @@ EITKit::EITKit() {
 void EITKit::calibrate(){
   calibrate_samples();
   calibrate_gain(0, 1, 2, 3);
-  //Serial.print("Sample rate (uS per reading): ");
-  //Serial.println(sample_rate, 4);
-  //Serial.print("Samples per period: ");
-  //Serial.println(samples_per_period);
-  //Serial.print("Drive gain: ");
-  //Serial.println(_current_gain);
-  //Serial.print("Measurement gain: ");
-  //Serial.println(_voltage_gain);
-  //Serial.print("Reference signal phase offset (radians): ");
-  //Serial.println(_phase_offset, 4);
+  Serial.print("{ ");
+  Serial.print(":GET ");
+  Serial.print("{ ");
+  Serial.print(":RATE ");
+  Serial.print(sample_rate, 4);
+  Serial.print(" ");
+  Serial.print(":NSAMPLE ");
+  Serial.print(num_samples);
+  Serial.print(" ");
+  Serial.print(":DRIVEGAIN ");
+  Serial.print(_current_gain);
+  Serial.print(" ");
+  Serial.print(":MEASGAIN ");
+  Serial.print(_voltage_gain);
+  Serial.print(" ");
+  Serial.print("} ");
+  Serial.println("}");
 }
 
-void EITKit::take_measurements(uint n_elec, Meas_t meas_type){
+std::vector<std::vector<EITKit::measured>> EITKit::take_measurements(uint n_elec, Meas_t meas_type){
   std::vector<uint8_t> pairs(n_elec);
   for (uint i = 0; i < pairs.size(); i++) pairs[i] = i;
-  std::vector<std::vector<EITKit::measured>> result = read_pattern(pairs, n_elec, meas_type, 200);
-  std::vector<std::vector<double>> rms(result.size());
-  std::vector<std::vector<double>> mag(result.size());
-  std::vector<std::vector<double>> phase(result.size());
-  for (uint i = 0; i < result.size(); i++) {
-    rms[i].resize(result[i].size());
-    mag[i].resize(result[i].size());
-    phase[i].resize(result[i].size());
-  }
-  for (uint i = 0; i < result.size(); i++) {
-    for (uint j = 0; j < result[i].size(); j++) {
-      rms[i][j] = result[i][j].rms;
-      mag[i][j] = result[i][j].mag;
-      phase[i][j] = result[i][j].phase;
-    }
-  }
-  _rms = rms;
-  _mag = mag;
-  _phase = phase;
-}
+  auto result = read_pattern(pairs, n_elec, meas_type, 100);
 
-// public set/get methods 
+  return result;
+}
+ 
 // CAUTION: setter はあくまで変数を変更するだけで、計測器の状態を変更するには別途対応する関数の呼び出しが必要
 
 /* set the AC current frequency
@@ -231,18 +221,6 @@ void EITKit::set_voltage_gain(uint16_t voltage_gain) {
 // get the voltage gain
 uint16_t EITKit::get_voltage_gain() {
   return _voltage_gain;
-}
-
-std::vector<std::vector<double>> EITKit::get_rms() {
-  return _rms;
-}
-
-std::vector<std::vector<double>> EITKit::get_mag() {
-  return _mag;
-}
-
-std::vector<std::vector<double>> EITKit::get_phase() {
-  return _phase;
 }
 
 #if defined(__IMXRT1062__) // for Teensy 4.0
@@ -479,7 +457,6 @@ std::vector<EITKit::measured> EITKit::read_volts_at(
       mux_write_to_electrode(VP, vp_pin, MUX_EN);
       mux_write_to_electrode(VN, vn_pin, MUX_EN);
 
-      // 配列のポインタが引数になっていることに注意、ポインタ位置を起点(引数の値)からずらして渡している
       result[i] = read_signal(0);
     }
     delayMicroseconds(delay_us);
@@ -489,6 +466,7 @@ std::vector<EITKit::measured> EITKit::read_volts_at(
 
 // 各フレームでの電圧分布群を読み取り更新
 // read_volts_at() を使用する
+// 測定に対してプロセシングは 60~65% 程度の時間を追加で要することに注意
 std::vector<std::vector<EITKit::measured>> EITKit::read_pattern(
   std::vector<uint8_t> pattern,
   int n_elec,
@@ -501,24 +479,24 @@ std::vector<std::vector<EITKit::measured>> EITKit::read_pattern(
   for(uint i = 0; i < pattern.size() / 2; i++) {
     src_pin = pattern[2*i];
     sink_pin = pattern[2*i + 1];
-    Serial.print("src: ");
-    Serial.print(src_pin);
-    Serial.print(", ");
-    Serial.print("sink: ");
-    Serial.print(sink_pin);
-    Serial.print(", ");
+    //Serial.print("src: ");
+    //Serial.print(src_pin);
+    //Serial.print(", ");
+    //Serial.print("sink: ");
+    //Serial.print(sink_pin);
+    //Serial.print(", ");
 
     mux_write_to_electrode(SRC, src_pin, MUX_EN);
     mux_write_to_electrode(SINK, sink_pin, MUX_EN);
 
-    delayMicroseconds(200);
+    delayMicroseconds(delay_us);
 
     std::vector<uint8_t> pairs = generateElectrodePairs(meas_type, n_elec, 0);
-    for(uint i = 0; i < pairs.size(); i++) {
-      Serial.print(pairs[i]);
-      Serial.print(", ");
-    }
-    Serial.println();
+    //for(uint i = 0; i < pairs.size(); i++) {
+    //  Serial.print(pairs[i]);
+    //  Serial.print(", ");
+    //}
+    //Serial.println();
     result[i] = read_volts_at(src_pin, sink_pin, pairs, 100);
   }
   return result;
@@ -568,6 +546,11 @@ EITKit::measured EITKit::read_signal(uint8_t debug){
   }
 
   time2 = micros();
+
+  //Serial.print("time.collect(us): ");
+  //Serial.println(time2 - time1);
+
+  //auto t = micros();
 
   /* Process samples */
   for(i = 0; i < num_samples; i++) {
@@ -650,6 +633,9 @@ EITKit::measured EITKit::read_signal(uint8_t debug){
   // だからって何でサチってるデータを基準にしてるのかはわからないけど...
   uint16_t compare_periods = 2;
 
+  //Serial.print("time.process(us): ");
+  //Serial.println(micros() - t);
+
   return {
     (time2 - time1),
     (double)rms_10bit * 2.2 / 1024,
@@ -731,6 +717,7 @@ void EITKit::calibrate_gain(uint8_t src_pin, uint8_t sink_pin, uint8_t vp_pin, u
 }
 #endif
 
+// read_signal() にかかる時間 (sample_rate * num_samples) を算出
 /* Find the optimal number of samples to read the desired number of periods of the input signal */
 void EITKit::calibrate_samples(){
 
@@ -743,5 +730,5 @@ void EITKit::calibrate_samples(){
   /* Calculate sample rate and total number of samples */
   sample_rate = (float)sample_time / MAX_SAMPLES; // microsec to read each measurement ADV_AVG number of times
   samples_per_period = (1000000 / sample_rate) / TEST_FREQ; // [measurements read] / [current cycles]
-  num_samples = samples_per_period * NUM_PERIODS; 
+  num_samples = samples_per_period * NUM_PERIODS;
 }
